@@ -1,0 +1,15 @@
+{
+  "name": "ヘルスきち",
+  "short_name": "ヘルスきち",
+  "description": "摩擦ゼロ健康トラッキング & AI週次コーチング",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0D131F",
+  "theme_color": "#0D131F",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ヘルスきち</title>
+<meta name="theme-color" content="#0D131F">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#0D131F; --surface:#171F2E; --surface2:#212D42; --line:#2A3850;
+  --text:#E9EDF5; --muted:#8B96AB;
+  --moon:#A8C6EE; --amber:#E0A458; --good:#7FC8A9; --bad:#D98B8B;
+  --radius:16px;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0; padding:0; background:var(--bg); color:var(--text);
+  font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+  font-size:16px; line-height:1.6}
+body{padding-bottom:76px; max-width:560px; margin:0 auto}
+h1,h2,h3{margin:0; font-weight:700}
+button{font-family:inherit; border:none; cursor:pointer; color:inherit; background:none}
+input,textarea{font-family:inherit; font-size:16px; color:var(--text);
+  background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%}
+input:focus,textarea:focus,button:focus-visible{outline:2px solid var(--moon); outline-offset:2px}
+
+header{display:flex; align-items:baseline; justify-content:space-between; padding:20px 20px 8px}
+header .date{font-size:22px; font-weight:700; letter-spacing:.02em}
+header .app{font-size:12px; color:var(--muted); letter-spacing:.14em}
+
+main{padding:0 16px}
+.card{background:var(--surface); border-radius:var(--radius); padding:18px; margin:12px 0;
+  border:1px solid var(--line)}
+.card h2{font-size:13px; color:var(--muted); font-weight:600; letter-spacing:.1em; margin-bottom:12px}
+
+/* --- 睡眠カード(シグネチャ: 24hダイヤル) --- */
+.sleep-body{display:flex; align-items:center; gap:18px}
+.dial{flex:0 0 116px}
+.sleep-info .dur{font-size:34px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.2}
+.sleep-info .dur small{font-size:16px; font-weight:600; color:var(--muted)}
+.sleep-info .times{color:var(--muted); font-size:14px; margin-top:4px; font-variant-numeric:tabular-nums}
+.sleep-info .src{font-size:12px; color:var(--muted); margin-top:6px}
+.btn-ghost{color:var(--moon); font-size:14px; padding:6px 0}
+.btn-big{display:block; width:100%; padding:16px; border-radius:14px; font-size:18px; font-weight:700;
+  background:linear-gradient(140deg,#26344E,#1B2740); color:var(--moon); border:1px solid var(--line)}
+.btn-big:active{transform:scale(.98)}
+.btn-amber{background:var(--amber); color:#20160A}
+.pending{display:flex; justify-content:space-between; align-items:center}
+.pending .label{color:var(--moon); font-weight:700}
+
+/* --- 気分 --- */
+.mood-row{display:flex; gap:10px}
+.mood-row button{flex:1; font-size:30px; padding:12px 0; background:var(--surface2);
+  border-radius:14px; border:1px solid var(--line)}
+.mood-row button:active{transform:scale(.94)}
+.mood-done{color:var(--muted); font-size:14px}
+
+/* --- クイックログ --- */
+.chips{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+.chips button{padding:13px 4px; background:var(--surface2); border-radius:12px; font-size:14px;
+  font-weight:600; border:1px solid var(--line); transition:background .15s}
+.chips button:active{background:var(--amber); color:#20160A; transform:scale(.95)}
+.chips.acts{margin-top:8px; grid-template-columns:repeat(3,1fr)}
+.chips .no-meal{grid-column:span 4; color:var(--muted); font-weight:500}
+.chips.g3{grid-template-columns:repeat(3,1fr)}
+.subh{font-size:12px; color:var(--muted); margin:14px 0 6px; letter-spacing:.06em}
+.subh:first-of-type{margin-top:0}
+.chiplist{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px}
+.chiplist .chip{background:var(--surface2); border:1px solid var(--line); border-radius:999px;
+  padding:4px 4px 4px 12px; font-size:13px; display:inline-flex; gap:2px; align-items:center}
+.chiplist .chip button{color:var(--bad); font-weight:700; padding:0 8px; font-size:15px}
+
+/* --- 今日のログ --- */
+.log{list-style:none; margin:0; padding:0}
+.log li{display:flex; gap:12px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px}
+.log li:last-child{border-bottom:none}
+.log time{color:var(--muted); font-variant-numeric:tabular-nums; flex:0 0 46px}
+.log .empty{color:var(--muted); border:none}
+
+/* --- レポート --- */
+.report .summary{font-size:15px}
+.report ul{margin:10px 0; padding-left:18px; font-size:14px; color:var(--muted)}
+.exp{background:var(--surface2); border-radius:12px; padding:12px 14px; margin-top:10px;
+  border-left:3px solid var(--amber)}
+.exp .t{font-weight:700; color:var(--amber); font-size:14px}
+.exp .a{font-size:15px; margin-top:2px}
+.exp .w{font-size:13px; color:var(--muted); margin-top:4px}
+.oneliner{margin-top:12px; font-size:14px; color:var(--moon)}
+.review{margin-top:10px; font-size:13px; color:var(--muted)}
+.gen-note{font-size:13px; color:var(--muted); margin-top:8px}
+
+/* --- 履歴 --- */
+.chart{width:100%; margin-top:6px}
+.chart text{fill:var(--muted); font-size:10px}
+.legend{font-size:12px; color:var(--muted); margin-top:2px}
+
+/* --- 設定 --- */
+.field{margin:14px 0}
+.field label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+.row2{display:flex; gap:8px}
+.btn{padding:11px 16px; border-radius:10px; background:var(--surface2); border:1px solid var(--line);
+  font-weight:600; font-size:14px}
+.btn.primary{background:var(--moon); color:#101828}
+.btn.danger{color:var(--bad); border-color:var(--bad)}
+.note{font-size:12px; color:var(--muted)}
+
+/* --- ナビ / トースト / ダイアログ --- */
+nav{position:fixed; bottom:0; left:0; right:0; max-width:560px; margin:0 auto;
+  display:flex; background:rgba(23,31,46,.96); backdrop-filter:blur(8px);
+  border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom)}
+nav a{flex:1; text-align:center; padding:12px 0 10px; color:var(--muted); text-decoration:none; font-size:12px}
+nav a .ic{display:block; font-size:20px}
+nav a.on{color:var(--moon)}
+#toast{position:fixed; bottom:86px; left:50%; transform:translateX(-50%); background:var(--surface2);
+  border:1px solid var(--line); border-radius:12px; padding:10px 16px; font-size:14px;
+  display:none; align-items:center; gap:14px; white-space:nowrap; z-index:10;
+  box-shadow:0 6px 24px rgba(0,0,0,.4)}
+#toast button{color:var(--amber); font-weight:700}
+dialog{background:var(--surface); color:var(--text); border:1px solid var(--line);
+  border-radius:var(--radius); padding:20px; width:min(92vw,380px)}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+.hidden{display:none!important}
+.spin{display:inline-block; animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="date" id="hDate"></div>
+  <div class="app">ヘルスきち</div>
+</header>
+
+<main>
+  <!-- ============ ホーム ============ -->
+  <section id="view-home">
+    <div class="card" id="sleepCard"></div>
+    <div class="card" id="moodCard"></div>
+    <div class="card">
+      <h2>きろく(1タップ)</h2>
+      <div class="subh">🍽 食事</div><div class="chips" id="mealChips"></div>
+      <div class="subh">🥗 健康なもの</div><div class="chips g3" id="healthChips"></div>
+      <div class="subh">☕ コーヒー</div><div class="chips g3" id="coffeeChips"></div>
+      <div class="subh">🏃 運動</div><div class="chips g3" id="activityChips"></div>
+    </div>
+    <div class="card">
+      <h2>今日のログ <span style="font-weight:400">(タップで時間修正・削除)</span></h2>
+      <ul class="log" id="todayLog"></ul>
+    </div>
+    <div class="card report" id="reportCard"></div>
+  </section>
+
+  <!-- ============ 履歴 ============ -->
+  <section id="view-history" class="hidden">
+    <div class="card"><h2>睡眠(直近14日)</h2><div id="chartSleep"></div>
+      <div class="legend">点線: 期間平均</div></div>
+    <div class="card"><h2>コーヒーの時刻(直近14日)</h2><div id="chartCoffee"></div>
+      <div class="legend">赤点線: 21:00(カフェイン注意ライン)</div></div>
+    <div class="card"><h2>気分(直近14日)</h2><div id="chartMood"></div></div>
+    <div class="card"><h2>過去のレポート</h2><div id="reportHistory"></div></div>
+  </section>
+
+  <!-- ============ 設定 ============ -->
+  <section id="view-settings" class="hidden">
+    <div class="card">
+      <h2>Gemini API</h2>
+      <div class="field"><label for="inKey">APIキー(この端末にのみ保存されます)</label>
+        <input type="password" id="inKey" autocomplete="off" placeholder="AIza...">
+      </div>
+      <div class="field"><label for="inModel">モデル(空欄なら gemini-3.5-flash)</label>
+        <input type="text" id="inModel" placeholder="gemini-3.5-flash">
+      </div>
+      <button class="btn primary" id="btnSaveKey">保存して接続を確認</button>
+      <p class="note" id="keyStatus"></p>
+    </div>
+    <div class="card">
+      <h2>ボタンの編集</h2>
+      <div id="chipEditors"></div>
+      <p class="note">×で削除、名前を入れて「追加」で登録。ホームに即反映されます。</p>
+    </div>
+    <div class="card">
+      <h2>データ</h2>
+      <div class="row2">
+        <button class="btn" id="btnExport">エクスポート</button>
+        <button class="btn" id="btnImport">インポート</button>
+        <input type="file" id="fileImport" accept=".json" class="hidden">
+      </div>
+      <p class="note">すべてのデータはこの端末のブラウザ内にのみ保存されます。機種変更前にエクスポートしてください。</p>
+      <button class="btn danger" id="btnWipe" style="margin-top:10px">すべてのデータを削除</button>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <a href="#home" data-v="home"><span class="ic">🌙</span>ホーム</a>
+  <a href="#history" data-v="history"><span class="ic">📈</span>履歴</a>
+  <a href="#settings" data-v="settings"><span class="ic">⚙️</span>設定</a>
+</nav>
+
+<div id="toast"><span id="toastMsg"></span><button id="toastUndo" class="hidden">取り消す</button></div>
+
+<!-- 睡眠の手動入力/補正 -->
+<dialog id="dlgSleep">
+  <h3 style="font-size:16px; margin-bottom:14px" id="dlgSleepTitle">睡眠を記録</h3>
+  <div class="field"><label for="inBed">寝た時刻</label><input type="time" id="inBed"></div>
+  <div class="field"><label for="inWake">起きた時刻</label><input type="time" id="inWake"></div>
+  <p class="note">寝た時刻が起きた時刻より遅い場合は前日の夜として扱います。</p>
+  <div class="row2" style="margin-top:14px">
+    <button class="btn" id="btnSleepCancel">やめる</button>
+    <button class="btn primary" id="btnSleepSave" style="flex:1">記録する</button>
+  </div>
+</dialog>
+
+<!-- ログの時刻修正/削除(あとからのまとめ入力用) -->
+<dialog id="dlgEvent">
+  <h3 style="font-size:16px; margin-bottom:14px" id="dlgEvTitle">記録の修正</h3>
+  <div class="subh">だいたいの時間をタップ</div>
+  <div class="chips g3" id="slotBtns"></div>
+  <div class="field" style="margin-top:12px"><label for="inEvTime">正確な時刻</label>
+    <input type="time" id="inEvTime"></div>
+  <div class="row2" style="margin-top:14px">
+    <button class="btn danger" id="btnEvDelete">削除</button>
+    <button class="btn" id="btnEvCancel">やめる</button>
+    <button class="btn primary" id="btnEvSave" style="flex:1">保存</button>
+  </div>
+</dialog>
+
+<script src="core.js"></script>
+<script>
+"use strict";
+/* ================= 状態管理 ================= */
+const LS_KEY = "hk.state.v1";
+let state = load();
+function load(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return HK.emptyState();
+    return HK.migrate(JSON.parse(raw)); // 前方互換: 旧スキーマを現行版へ移行
+  }catch(e){ return HK.emptyState(); }
+}
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+const $ = (id) => document.getElementById(id);
+const todayIso = () => HK.dateIso(Date.now());
+
+/* ================= トースト ================= */
+let toastTimer = null, undoFn = null;
+function toast(msg, undo){
+  $("toastMsg").textContent = msg;
+  undoFn = undo || null;
+  $("toastUndo").classList.toggle("hidden", !undo);
+  $("toast").style.display = "flex";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $("toast").style.display = "none", undo ? 5000 : 2500);
+}
+$("toastUndo").onclick = () => { if(undoFn) undoFn(); $("toast").style.display = "none"; };
+
+/* ================= 睡眠カード ================= */
+function fmtDur(min){
+  const h = Math.floor(min/60), m = min%60;
+  return `${h}<small>時間</small>${m<10?"0"+m:m}<small>分</small>`;
+}
+/** シグネチャ: 24時間ダイヤル。0時が頂点、就寝→起床を月光色の弧で描く */
+function dialSvg(bedMs, wakeMs){
+  const R=48, C=58, ang=(ms)=>{ const d=new Date(ms); return ((d.getHours()+d.getMinutes()/60)/24)*2*Math.PI - Math.PI/2; };
+  const pt=(a)=>[C+R*Math.cos(a), C+R*Math.sin(a)];
+  const a1=ang(bedMs), a2raw=ang(wakeMs);
+  const a2 = a2raw <= a1 ? a2raw + 2*Math.PI : a2raw;
+  const [x1,y1]=pt(a1), [x2,y2]=pt(a2);
+  const large = (a2-a1) > Math.PI ? 1 : 0;
+  const ticks = [0,6,12,18].map(h=>{
+    const a=(h/24)*2*Math.PI-Math.PI/2, [tx,ty]=[C+(R+7)*Math.cos(a), C+(R+7)*Math.sin(a)+3];
+    return `<text x="${tx}" y="${ty}" text-anchor="middle">${h}</text>`;
+  }).join("");
+  return `<svg class="dial" viewBox="0 0 116 116" width="116" height="116" role="img" aria-label="睡眠時間帯">
+    <circle cx="${C}" cy="${C}" r="${R}" fill="none" stroke="var(--line)" stroke-width="6"/>
+    <path d="M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2}" fill="none"
+      stroke="var(--moon)" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="${x1}" cy="${y1}" r="4.5" fill="var(--moon)"/>
+    <circle cx="${x2}" cy="${y2}" r="4.5" fill="var(--amber)"/>
+    ${ticks}</svg>`;
+}
+function renderSleep(){
+  const el = $("sleepCard");
+  const t = todayIso();
+  const sl = state.sleep[t];
+  const h = new Date().getHours();
+  if(sl && sl.durationMin != null){
+    el.innerHTML = `<h2>昨夜のすいみん</h2>
+      <div class="sleep-body">${dialSvg(sl.bed, sl.wake)}
+        <div class="sleep-info">
+          <div class="dur">${fmtDur(sl.durationMin)}</div>
+          <div class="times">${HK.hhmm(sl.bed)} → ${HK.hhmm(sl.wake)}</div>
+          <div class="src">${sl.source==="AUTO"?"自動記録":"手動記録"}</div>
+          <button class="btn-ghost" id="btnFix">修正する</button>
+        </div></div>`;
+    $("btnFix").onclick = () => openSleepDialog(t, sl);
+  } else if(state.pendingBed != null){
+    el.innerHTML = `<h2>すいみん</h2>
+      <div class="pending"><span class="label">🌙 おやすみ中(${HK.hhmm(state.pendingBed)}〜)</span>
+      <button class="btn-ghost" id="btnCancelBed">取り消す</button></div>
+      <p class="note" style="margin:10px 0 0">朝このアプリを開くと自動で記録されます。</p>`;
+    $("btnCancelBed").onclick = () => { state.pendingBed = null; save(); renderSleep(); };
+  } else if(h >= 4 && h < 12){
+    el.innerHTML = `<h2>すいみん</h2>
+      <p style="font-size:15px; margin:0 0 12px">昨夜の睡眠がまだ記録されていません。</p>
+      <button class="btn-big" id="btnQuickSet">昨夜の睡眠を入れる(10秒)</button>`;
+    $("btnQuickSet").onclick = () => openSleepDialog(t, null);
+  } else {
+    el.innerHTML = `<h2>すいみん</h2>
+      <button class="btn-big" id="btnBed">🌙 おやすみ</button>
+      <p class="note" style="margin:10px 0 0">タップしなくても、夜このアプリを触っていれば朝開くだけで自動記録されます。タップするとより正確です。</p>`;
+    $("btnBed").onclick = () => {
+      HK.markBed(state, Date.now()); save(); renderSleep();
+      toast("おやすみなさい。よい眠りを");
+    };
+  }
+}
+/* 手動入力/補正ダイアログ */
+let dlgTarget = null;
+function openSleepDialog(dateIso, existing){
+  dlgTarget = dateIso;
+  $("dlgSleepTitle").textContent = existing ? "睡眠を修正" : "昨夜の睡眠を記録";
+  $("inBed").value  = existing ? HK.hhmm(existing.bed)  : "00:30";
+  $("inWake").value = existing ? HK.hhmm(existing.wake) : HK.hhmm(Date.now());
+  $("dlgSleep").showModal();
+}
+$("btnSleepCancel").onclick = () => $("dlgSleep").close();
+$("btnSleepSave").onclick = () => {
+  const b = HK.parseHHmm($("inBed").value), w = HK.parseHHmm($("inWake").value);
+  if(b == null || w == null){ toast("時刻を入力してください"); return; }
+  const base = new Date(dlgTarget + "T00:00:00").getTime();
+  let bedMs = base + b*60000;
+  const wakeMs = base + w*60000;
+  if(bedMs >= wakeMs) bedMs -= 86400000; // 前日の夜
+  HK.setSleepManual(state, dlgTarget, bedMs, wakeMs); save();
+  $("dlgSleep").close(); renderSleep(); toast("睡眠を記録しました");
+};
+
+/* ================= 気分カード ================= */
+function renderMood(){
+  const el = $("moodCard"), t = todayIso(), m = state.mood[t], h = new Date().getHours();
+  if(m){
+    el.innerHTML = `<h2>きぶん</h2><div class="mood-done">今日: ${["","😫","🙁","😐","🙂","😊"][m.score]} 記録済み</div>`;
+  } else if(h >= 20 || h < 4){
+    el.innerHTML = `<h2>今日はどんな1日?</h2><div class="mood-row">
+      <button data-s="1" aria-label="しんどい">😫</button>
+      <button data-s="3" aria-label="ふつう">😐</button>
+      <button data-s="5" aria-label="いい感じ">😊</button></div>`;
+    el.querySelectorAll("button").forEach(b => b.onclick = () => {
+      const iso = h < 4 ? HK.dateIso(Date.now() - 86400000) : t; // 深夜0-4時は前日の気分として
+      state.mood[iso] = { score: +b.dataset.s, note: null }; save();
+      renderMood(); toast("記録しました。おつかれさまでした");
+    });
+  } else {
+    el.classList.add("hidden"); return;
+  }
+  el.classList.remove("hidden");
+}
+
+/* ================= クイックログ(4グループ・編集可能) ================= */
+const GROUPS = [
+  ["mealChips","MEAL","🍽 食事"], ["healthChips","HEALTH","🥗 健康なもの"],
+  ["coffeeChips","COFFEE","☕ コーヒー"], ["activityChips","ACTIVITY","🏃 運動"]
+];
+const TYPE_ICON = {MEAL:"🍽", HEALTH:"🥗", COFFEE:"☕", ACTIVITY:"🏃", NO_MEAL:"—"};
+function renderChips(){
+  for(const [key, type] of GROUPS){
+    $(key).innerHTML = state.settings[key].map(c =>
+      `<button data-g="${type}" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("") +
+      (type==="MEAL" ? `<button class="no-meal" data-g="NO_MEAL">今日は食べてない</button>` : "");
+  }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-g]"); if(!b) return;
+  const g = b.dataset.g;
+  const label = g === "NO_MEAL" ? null : b.dataset.label;
+  HK.logEvent(state, g === "NO_MEAL" ? "NO_MEAL" : g, label, Date.now()); save();
+  renderTodayLog();
+  toast(`${label || "食べてない"} を記録`, () => { HK.undoLastEvent(state); save(); renderTodayLog(); });
+});
+function renderTodayLog(){
+  const ev = HK.eventsOn(state, todayIso());
+  $("todayLog").innerHTML = ev.length
+    ? ev.map(e => `<li data-eid="${e.id}"><time>${HK.hhmm(e.t)}</time>
+        <span>${TYPE_ICON[e.type]||""} ${esc(e.label || (e.type==="NO_MEAL" ? "食べてない" : ""))}</span></li>`).join("")
+    : `<li class="empty">まだ記録はありません。上のボタン1タップでどうぞ。あとから時間はまとめて直せます。</li>`;
+  $("todayLog").querySelectorAll("li[data-eid]").forEach(li =>
+    li.onclick = () => openEventDialog(+li.dataset.eid));
+}
+
+/* ログの時刻修正/削除 */
+let evTarget = null;
+function openEventDialog(id){
+  const e = state.events.find(x => x.id === id); if(!e) return;
+  evTarget = e;
+  $("dlgEvTitle").textContent = `${TYPE_ICON[e.type]||""} ${e.label || "記録"} の修正`;
+  $("inEvTime").value = HK.hhmm(e.t);
+  $("slotBtns").innerHTML = ["6:00","9:00","12:00","15:00","18:00","21:00"].map(t =>
+    `<button type="button" data-slot="${t}">${t}</button>`).join("");
+  $("slotBtns").querySelectorAll("button").forEach(b =>
+    b.onclick = () => { $("inEvTime").value = ("0"+b.dataset.slot).slice(-5); });
+  $("dlgEvent").showModal();
+}
+$("btnEvCancel").onclick = () => $("dlgEvent").close();
+$("btnEvDelete").onclick = () => {
+  if(evTarget){ HK.deleteEventById(state, evTarget.id); save(); renderTodayLog(); }
+  $("dlgEvent").close(); toast("削除しました");
+};
+$("btnEvSave").onclick = () => {
+  const m = HK.parseHHmm($("inEvTime").value);
+  if(m == null || !evTarget){ $("dlgEvent").close(); return; }
+  const base = new Date(HK.dateIso(evTarget.t) + "T00:00:00").getTime();
+  HK.updateEventTime(state, evTarget.id, base + m*60000); save();
+  renderTodayLog(); $("dlgEvent").close(); toast("時間を修正しました");
+};
+
+/* ================= 週次レポート ================= */
+function latestReport(){ return state.reports.length ? state.reports[state.reports.length-1] : null; }
+function renderReport(){
+  const el = $("reportCard");
+  const r = latestReport();
+  const thisWeek = HK.weekStartIso(Date.now());
+  const hasThisWeek = r && r.weekStart === thisWeek;
+  let html = `<h2>AI週次レポート</h2>`;
+  if(r){
+    const o = r.report;
+    html += `<div class="summary">${esc(o.sleep_summary||"")}</div>`;
+    if(o.patterns && o.patterns.length)
+      html += `<ul>${o.patterns.map(p=>`<li>${esc(p)}</li>`).join("")}</ul>`;
+    if(o.experiment)
+      html += `<div class="exp"><div class="t">来週の実験: ${esc(o.experiment.title||"")}</div>
+        <div class="a">${esc(o.experiment.action||"")}</div>
+        <div class="w">${esc(o.experiment.why||"")}</div></div>`;
+    if(o.last_week_experiment_review)
+      html += `<div class="review">前週の実験: ${esc(o.last_week_experiment_review)}</div>`;
+    if(o.one_liner) html += `<div class="oneliner">${esc(o.one_liner)}</div>`;
+    html += `<p class="gen-note">${r.weekStart} 週 / ${new Date(r.createdAt).toLocaleDateString("ja-JP")} 生成</p>`;
+  }
+  if(!state.settings.apiKey){
+    html += `<p class="gen-note">設定画面で Gemini APIキーを登録すると、毎週の振り返りと「来週の小さな実験」を提案します。</p>`;
+  } else {
+    html += `<button class="btn ${hasThisWeek?"":"primary"}" id="btnGen" style="margin-top:10px">
+      ${hasThisWeek ? "レポートを再生成" : "今週のレポートを生成"}</button>`;
+  }
+  el.innerHTML = html;
+  const bg = $("btnGen");
+  if(bg) bg.onclick = generateReport;
+}
+function esc(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+
+async function generateReport(){
+  const btn = $("btnGen");
+  btn.disabled = true; btn.innerHTML = `<span class="spin">◐</span> 生成中…`;
+  try{
+    const days = HK.buildDaySummaries(state, Date.now(), 7);
+    const weeks = HK.buildPastWeeks(state, Date.now(), 4);
+    const payload = HK.buildGeminiPayload(days, weeks, state.settings.lastExperiment);
+    const model = HK.resolveModel(state.settings);
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { method:"POST",
+        headers:{ "Content-Type":"application/json", "x-goog-api-key":state.settings.apiKey },
+        body: JSON.stringify(HK.buildGeminiRequestBody(payload)) });
+    if(!resp.ok) throw new Error("HTTP " + resp.status);
+    const parsed = HK.parseGeminiResponse(await resp.json());
+    if(parsed.error) throw new Error(parsed.error);
+    const weekStart = HK.weekStartIso(Date.now());
+    state.reports = state.reports.filter(r => r.weekStart !== weekStart);
+    state.reports.push({ weekStart, report: parsed.report, createdAt: Date.now() });
+    const ex = parsed.report.experiment;
+    state.settings.lastExperiment = ex ? `${ex.title}: ${ex.action}` : null;
+    save(); renderReport(); toast("今週のレポートができました");
+  }catch(e){
+    toast("レポートを生成できませんでした。あとで再試行できます");
+    renderReport();
+  }
+}
+
+/* ================= 履歴 ================= */
+function renderHistory(){
+  const days = HK.buildDaySummaries(state, Date.now(), 14);
+  // 睡眠バー
+  const W=520,H=150,P=24, bw=(W-2*P)/14-6;
+  const maxMin = Math.max(480, ...days.map(d=>d.sleepDurationMin||0));
+  const vals = days.map(d=>d.sleepDurationMin).filter(v=>v!=null);
+  const avg = vals.length ? vals.reduce((a,b)=>a+b)/vals.length : null;
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}">`;
+  days.forEach((d,i)=>{
+    const x=P+i*((W-2*P)/14);
+    if(d.sleepDurationMin!=null){
+      const h=(d.sleepDurationMin/maxMin)*(H-40);
+      s+=`<rect x="${x}" y="${H-24-h}" width="${bw}" height="${h}" rx="3" fill="var(--moon)" opacity=".85"/>`;
+    } else {
+      s+=`<rect x="${x}" y="${H-27}" width="${bw}" height="3" rx="1.5" fill="var(--line)"/>`;
+    }
+    if(i%2===0) s+=`<text x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.dateIso.slice(8)}</text>`;
+  });
+  if(avg){ const y=H-24-(avg/maxMin)*(H-40);
+    s+=`<line x1="${P}" x2="${W-P}" y1="${y}" y2="${y}" stroke="var(--amber)" stroke-dasharray="4 4" stroke-width="1"/>
+        <text x="${W-P}" y="${y-4}" text-anchor="end">${Math.floor(avg/60)}h${Math.round(avg%60)}m</text>`; }
+  $("chartSleep").innerHTML = s + "</svg>";
+  // コーヒー散布
+  let c = `<svg class="chart" viewBox="0 0 ${W} ${H}">`;
+  const y21 = H-24-((21-6)/18)*(H-40);
+  c+=`<line x1="${P}" x2="${W-P}" y1="${y21}" y2="${y21}" stroke="var(--bad)" stroke-dasharray="4 4" stroke-width="1"/>`;
+  [6,12,18,24].forEach(hh=>{ const y=H-24-((hh-6)/18)*(H-40);
+    c+=`<text x="4" y="${y+3}">${hh%24}</text>`; });
+  days.forEach((d,i)=>{
+    const x=P+i*((W-2*P)/14)+bw/2;
+    d.coffeeTimesHHmm.forEach(t=>{
+      let m=HK.parseHHmm(t); if(m==null) return;
+      let hr=m/60; if(hr<6) hr+=24; // 深夜は上に積む
+      const y=H-24-((hr-6)/18)*(H-40);
+      c+=`<circle cx="${x}" cy="${y}" r="4" fill="var(--amber)" opacity=".9"/>`;
+    });
+    if(i%2===0) c+=`<text x="${x}" y="${H-8}" text-anchor="middle">${d.dateIso.slice(8)}</text>`;
+  });
+  $("chartCoffee").innerHTML = c + "</svg>";
+  // 気分
+  let mchart = `<svg class="chart" viewBox="0 0 ${W} 120">`;
+  const pts=[];
+  days.forEach((d,i)=>{
+    const x=P+i*((W-2*P)/14)+bw/2;
+    if(d.moodScore!=null){ const y=100-((d.moodScore-1)/4)*80;
+      pts.push([x,y]); mchart+=`<circle cx="${x}" cy="${y}" r="4" fill="var(--good)"/>`; }
+    if(i%2===0) mchart+=`<text x="${x}" y="116" text-anchor="middle">${d.dateIso.slice(8)}</text>`;
+  });
+  if(pts.length>1) mchart+=`<polyline points="${pts.map(p=>p.join(",")).join(" ")}" fill="none" stroke="var(--good)" stroke-width="1.5" opacity=".6"/>`;
+  $("chartMood").innerHTML = mchart + "</svg>";
+  // レポート履歴
+  $("reportHistory").innerHTML = state.reports.length
+    ? state.reports.slice().reverse().map(r =>
+        `<div class="exp" style="margin-bottom:8px"><div class="t">${r.weekStart} 週</div>
+         <div class="a">${esc(r.report.sleep_summary||"")}</div>
+         <div class="w">実験: ${esc(r.report.experiment ? r.report.experiment.title : "-")}</div></div>`).join("")
+    : `<p class="note">まだレポートはありません。</p>`;
+}
+
+/* ================= 設定 ================= */
+function renderSettings(){
+  $("inKey").value = state.settings.apiKey || "";
+  $("inModel").value = state.settings.model || "";
+  $("chipEditors").innerHTML = GROUPS.map(([key,,title]) => `
+    <div class="field"><label>${title}</label>
+      <div class="chiplist">${state.settings[key].map((c,i) =>
+        `<span class="chip">${esc(c)}<button type="button" data-del="${key}:${i}" aria-label="${esc(c)}を削除">×</button></span>`).join("")}</div>
+      <div class="row2"><input id="add-${key}" placeholder="追加する名前" maxlength="12">
+        <button type="button" class="btn" data-add="${key}">追加</button></div>
+    </div>`).join("");
+}
+document.addEventListener("click", (e) => {
+  const del = e.target.closest("button[data-del]");
+  if(del){
+    const [key, i] = del.dataset.del.split(":");
+    state.settings[key].splice(+i, 1); save();
+    renderSettings(); renderChips(); return;
+  }
+  const add = e.target.closest("button[data-add]");
+  if(add){
+    const key = add.dataset.add, inp = $("add-"+key), v = inp.value.trim();
+    if(v && !state.settings[key].includes(v)){
+      state.settings[key].push(v); save();
+      renderSettings(); renderChips(); toast(`「${v}」を追加しました`);
+    } else if(v){ toast("同じ名前がすでにあります"); }
+  }
+});
+$("btnSaveKey").onclick = async () => {
+  const key = $("inKey").value.trim();
+  state.settings.apiKey = key;
+  state.settings.model = $("inModel").value.trim();
+  save();
+  const st = $("keyStatus");
+  if(!key){ st.textContent = "キーを削除しました。"; renderReport(); return; }
+  st.textContent = "接続を確認しています…";
+  try{ // 保存→即検証→結果表示(過去バグの再発防止)
+    const model = HK.resolveModel(state.settings);
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { method:"POST", headers:{ "Content-Type":"application/json", "x-goog-api-key":key },
+        body: JSON.stringify({ contents:[{parts:[{text:"ping"}]}], generationConfig:{maxOutputTokens:1} }) });
+    st.textContent = r.ok ? `✓ 接続OK(モデル: ${model})`
+      : (r.status===400||r.status===401||r.status===403) ? "✕ APIキーが無効です。キーを確認してください。"
+      : `✕ 接続できませんでした(${r.status})。時間をおいて再試行してください。`;
+  }catch(e){ st.textContent = "✕ ネットワークに接続できませんでした。"; }
+  renderReport();
+};
+$("btnExport").onclick = () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `healthkichi-${todayIso()}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+};
+$("btnImport").onclick = () => $("fileImport").click();
+$("fileImport").onchange = (e) => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try{ const s = JSON.parse(r.result);
+      if(!s.version || !Array.isArray(s.events)) throw new Error("format");
+      state = s; save(); renderAll(); toast("インポートしました");
+    }catch(err){ toast("読み込めませんでした。エクスポートしたJSONを選んでください"); }
+  };
+  r.readAsText(f);
+};
+$("btnWipe").onclick = () => {
+  if(confirm("すべての記録・設定を削除します。この操作は取り消せません。よろしいですか?")){
+    localStorage.removeItem(LS_KEY); state = HK.emptyState(); renderAll(); toast("削除しました");
+  }
+};
+
+/* ================= ルーター / 初期化 ================= */
+function route(){
+  const v = (location.hash || "#home").slice(1);
+  ["home","history","settings"].forEach(x => {
+    $("view-"+x).classList.toggle("hidden", x!==v);
+    document.querySelector(`nav a[data-v="${x}"]`).classList.toggle("on", x===v);
+  });
+  if(v==="history") renderHistory();
+  if(v==="settings") renderSettings();
+}
+window.addEventListener("hashchange", route);
+
+function renderAll(){
+  const d = new Date();
+  $("hDate").textContent = `${d.getMonth()+1}月${d.getDate()}日(${"日月火水木金土"[d.getDay()]})`;
+  renderSleep(); renderMood(); renderChips(); renderTodayLog(); renderReport(); route();
+}
+
+/* 起動時: 朝のタップゼロ睡眠確定 */
+function handleWakeResult(r){
+  if(r.kind === "woke"){
+    const h = Math.floor(r.durationMin/60), m = r.durationMin%60;
+    renderSleep();
+    toast(`おはようございます。睡眠 ${h}時間${m}分 を記録しました`,
+      () => { delete state.sleep[r.dateIso]; save(); renderSleep(); });
+  } else if(r.kind === "stale"){
+    toast("昨夜の「おやすみ」が確定されませんでした。ホームから手動で入れられます");
+  }
+}
+(function boot(){
+  const r = HK.resolveWakeOnOpen(state, Date.now());
+  save();
+  renderAll();
+  handleWakeResult(r);
+
+  // タップフリー睡眠推定のための操作記録(あらゆる操作で lastActiveAt を更新)
+  document.addEventListener("click", () => { HK.touch(state, Date.now()); save(); }, true);
+  // アプリが夜からメモリに残ったまま朝に再表示された場合も睡眠を確定する
+  document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState === "visible"){
+      const r2 = HK.resolveWakeOnOpen(state, Date.now());
+      if(r2.kind !== "none"){ renderAll(); handleWakeResult(r2); }
+    }
+    HK.touch(state, Date.now()); save();
+  });
+
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+})();
+</script>
+</body>
+</html>
