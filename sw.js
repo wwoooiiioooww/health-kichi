@@ -1,5 +1,5 @@
 /* ヘルスきち Service Worker — アプリシェルのキャッシュ(オフライン対応) */
-const CACHE = "hk-v2";
+const CACHE = "hk-v3";
 const ASSETS = ["./", "./index.html", "./core.js", "./manifest.webmanifest",
                 "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", (e) => {

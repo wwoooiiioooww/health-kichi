@@ -1,14 +1,14 @@
 /**
- * ヘルスきち core.js v2 — ロジック層(UI非依存・Nodeでテスト可能)
+ * ヘルスきち core.js v3 — ロジック層(UI非依存・Nodeでテスト可能)
  *
- * v1からの変更(2026-07-12 施主フィードバック反映):
- *   - チップ4グループ化: 食事 / 健康なもの / コーヒー(店舗) / 運動 — すべて設定で編集可能
- *   - 睡眠のタップフリー推定: 「おやすみ」タップなしでも、夜間の最終操作〜朝の起動の間隔から自動記録
- *   - イベントの時刻修正・削除(あとからのまとめ入力に対応)
- *   - デフォルトモデルを gemini-3.5-flash に変更(施主指定)
+ * v2からの変更(2026-07 施主フィードバック):
+ *   - 「1日」を朝4時区切りの論理日に統一(深夜2時の食事は前日の夜食)
+ *   - 夜のチェックイン3項目化: 気分(1-5) / はかどり(1-4) / イラッと度(0-3)
+ *   - 食事を3段階(good/normal/junk)+店は任意に再設計。健康チップは食事tierに統合
+ *   - 1日の運動量(0-3)を追加(チップの瞬間記録とは別)
+ *   - Gemini応答解析を思考(thought)パーツ対応に強化、出力上限4096に
  *
- * 設計原則(CLAUDE.md):
- *   入力させたら負け / 説教禁止 / 折れても責めない / 推定できないなら null
+ * 設計原則: 入力させたら負け / 説教禁止 / 折れても責めない / 推定できないなら null
  */
 "use strict";
 
@@ -16,19 +16,20 @@ const HK = {};
 
 // ---------------- 定数 ----------------
 
-// 施主指定(2026-07)。存在しないモデル名なら設定画面の「接続を確認」で即判明する設計
 HK.DEFAULT_MODEL = "gemini-3.5-flash";
 HK.LATE_COFFEE_HOUR = 21;
-HK.MIN_SLEEP_MIN = 180;         // これ未満は睡眠として確定しない(夜中の中断とみなす)
-HK.MAX_SLEEP_MIN = 16 * 60;     // これ超は睡眠とみなさない(半日放置の誤記録防止)
-HK.STALE_WAKE_HOUR = 12;        // この時刻以降は自動確定しない
-HK.WAKE_WINDOW_START_HOUR = 4;  // 朝の自動確定はこの時刻以降
-HK.NIGHT_ACTIVE_FROM = 20;      // タップフリー推定: 最終操作がこの時刻以降(〜翌4時)なら「就寝前の操作」とみなす
+HK.MIN_SLEEP_MIN = 180;
+HK.MAX_SLEEP_MIN = 16 * 60;
+HK.STALE_WAKE_HOUR = 12;
+HK.WAKE_WINDOW_START_HOUR = 4;
+HK.NIGHT_ACTIVE_FROM = 20;
+HK.DAY_START_HOUR = 4;          // 論理日の境界。朝4時より前は「前日」扱い
 
 HK.DEFAULT_MEAL_CHIPS = ["マック", "日高屋", "サイゼ", "松屋", "スシロー", "大戸屋", "自炊", "その他"];
-HK.DEFAULT_HEALTH_CHIPS = ["野菜", "魚", "果物", "サラダ"];
 HK.DEFAULT_COFFEE_CHIPS = ["スタバ", "マクドナルド", "ドトール", "タリーズ", "会社のカフェ", "その他"];
 HK.DEFAULT_ACTIVITY_CHIPS = ["階段", "散歩"];
+
+HK.MEAL_TIERS = { 1: "good", 2: "normal", 3: "junk" };
 
 // ---------------- 日付ユーティリティ ----------------
 
@@ -36,6 +37,20 @@ HK.dateIso = (ms) => {
   const d = new Date(ms);
   const p = (n) => (n < 10 ? "0" + n : "" + n);
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+};
+
+/** 論理日: 朝4時より前の時刻は前日として扱う */
+HK.logicalDateIso = (ms) => HK.dateIso(ms - HK.DAY_START_HOUR * 3600000);
+
+/**
+ * 論理日+分(0-1439)を実時刻(millis)に変換。
+ * 0:00-3:59 は論理日の「深夜」なので翌実日になる。
+ * 例: ("2026-07-11", 1:30) -> 実時刻 2026-07-12 01:30
+ */
+HK.msFromLogicalDate = (dateIso, minuteOfDay) => {
+  const base = new Date(dateIso + "T00:00:00").getTime();
+  const extra = minuteOfDay < HK.DAY_START_HOUR * 60 ? 1440 : 0;
+  return base + (minuteOfDay + extra) * 60000;
 };
 
 HK.hhmm = (ms) => {
@@ -47,7 +62,7 @@ HK.hhmm = (ms) => {
 /** その週の月曜日の ISO 日付 */
 HK.weekStartIso = (ms) => {
   const d = new Date(ms);
-  const dow = (d.getDay() + 6) % 7; // 月=0
+  const dow = (d.getDay() + 6) % 7;
   d.setDate(d.getDate() - dow);
   return HK.dateIso(d.getTime());
 };
@@ -55,26 +70,26 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 2,
-  events: [],          // {id, t: millis, type: "MEAL"|"HEALTH"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label: string|null}
+  version: 3,
+  events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label, tier(MEALのみ1-3)}
   nextEventId: 1,
-  sleep: {},           // dateIso(起床日) -> {bed, wake, durationMin, source: "AUTO"|"MANUAL", corrected}
-  mood: {},            // dateIso -> {score: 1..5, note}
-  reports: [],         // {weekStart, report: object, createdAt}
+  sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
+  checkin: {},         // 論理日 -> {mood?:1-5, focus?:1-4, irritation?:0-3}
+  exercise: {},        // 論理日 -> 0-3 (全然/すこし/ふつう/たくさん)
+  reports: [],
   settings: {
     apiKey: "",
-    model: "",         // 空なら DEFAULT_MODEL に解決される
+    model: "",
     mealChips: HK.DEFAULT_MEAL_CHIPS.slice(),
-    healthChips: HK.DEFAULT_HEALTH_CHIPS.slice(),
     coffeeChips: HK.DEFAULT_COFFEE_CHIPS.slice(),
     activityChips: HK.DEFAULT_ACTIVITY_CHIPS.slice(),
     lastExperiment: null
   },
-  pendingBed: null,    // おやすみタップ済み・未確定の就寝時刻(millis)
-  lastActiveAt: null   // アプリを最後に操作した時刻(タップフリー睡眠推定に使用)
+  pendingBed: null,
+  lastActiveAt: null
 });
 
-/** 旧バージョンのstateを現行スキーマへ移行(前方互換) */
+/** 旧バージョン(v1/v2)のstateを現行スキーマへ移行 */
 HK.migrate = (s) => {
   const base = HK.emptyState();
   for (const k of Object.keys(base)) if (!(k in s)) s[k] = base[k];
@@ -82,12 +97,20 @@ HK.migrate = (s) => {
   s.events = (s.events || []).map((e) => {
     if (e.type === "STAIRS") return Object.assign({}, e, { type: "ACTIVITY", label: "階段" });
     if (e.type === "WALK") return Object.assign({}, e, { type: "ACTIVITY", label: "散歩" });
+    if (e.type === "HEALTH") return Object.assign({}, e, { type: "MEAL", tier: 1 });      // 健康チップ→良い食事
+    if (e.type === "MEAL" && e.tier == null) return Object.assign({}, e, { tier: 2 });    // 旧食事→ふつう
     return e;
   });
   let id = s.nextEventId || 1;
   for (const e of s.events) if (e.id == null) e.id = id++;
   s.nextEventId = Math.max(id, ...s.events.map((e) => e.id + 1), 1);
-  s.version = 2;
+  if (s.mood) { // v2の気分 -> checkin.mood
+    for (const [d, m] of Object.entries(s.mood))
+      if (!s.checkin[d]) s.checkin[d] = { mood: m.score };
+    delete s.mood;
+  }
+  delete s.settings.healthChips;
+  s.version = 3;
   return s;
 };
 
@@ -96,24 +119,15 @@ HK.resolveModel = (settings) => {
   return m && m.trim() ? m.trim() : HK.DEFAULT_MODEL;
 };
 
-// ---------------- 睡眠 ----------------
-// 3経路(精度順): ①🌙おやすみタップ(任意) ②タップフリー推定(夜の最終操作〜朝の起動) ③手動入力
+// ---------------- 睡眠(v2と同一ロジック) ----------------
 
 HK.markBed = (state, nowMs) => { state.pendingBed = nowMs; return state; };
-
-/** アプリの操作を記録(クリック/表示のたびにUI層が呼ぶ) */
 HK.touch = (state, nowMs) => { state.lastActiveAt = nowMs; return state; };
 
-/**
- * アプリを開いた瞬間に呼ぶ。戻り値:
- *   {kind:"none"} / {kind:"woke", dateIso, durationMin, inferred} /
- *   {kind:"short"}(就寝から浅い・深夜の点灯) / {kind:"stale"}(おやすみ失効)
- */
 HK.resolveWakeOnOpen = (state, nowMs) => {
-  const today = HK.dateIso(nowMs);
+  const today = HK.dateIso(nowMs); // 起床日は実日(起床は4-12時なので論理日と一致)
   const h = new Date(nowMs).getHours();
 
-  // ① 明示的な「おやすみ」がある場合(最優先)
   if (state.pendingBed != null) {
     if (state.sleep[today]) { state.pendingBed = null; return { kind: "none" }; }
     const bed = state.pendingBed;
@@ -123,13 +137,12 @@ HK.resolveWakeOnOpen = (state, nowMs) => {
       state.pendingBed = null;
       return { kind: "stale" };
     }
-    if (h < HK.WAKE_WINDOW_START_HOUR) return { kind: "short" }; // 深夜0-4時の点灯は起床でない
+    if (h < HK.WAKE_WINDOW_START_HOUR) return { kind: "short" };
     state.sleep[today] = { bed, wake: nowMs, durationMin: elapsedMin, source: "AUTO", corrected: false };
     state.pendingBed = null;
     return { kind: "woke", dateIso: today, durationMin: elapsedMin, inferred: false };
   }
 
-  // ② タップフリー推定: 夜間(20時〜翌4時)の最終操作から3時間以上あいて、朝(4〜12時)に開いた
   if (state.sleep[today]) return { kind: "none" };
   const la = state.lastActiveAt;
   if (la == null) return { kind: "none" };
@@ -144,22 +157,34 @@ HK.resolveWakeOnOpen = (state, nowMs) => {
   return { kind: "none" };
 };
 
-/** 手動補正/手動入力。誤った自動値より正直な手入力を尊重 */
 HK.setSleepManual = (state, dateIso, bedMs, wakeMs) => {
   const durationMin = Math.max(0, Math.floor((wakeMs - bedMs) / 60000));
   state.sleep[dateIso] = { bed: bedMs, wake: wakeMs, durationMin, source: "MANUAL", corrected: true };
   return state;
 };
 
+// ---------------- チェックイン・運動量 ----------------
+
+HK.setCheckin = (state, dateIso, field, value) => {
+  if (!["mood", "focus", "irritation"].includes(field)) return false;
+  if (!state.checkin[dateIso]) state.checkin[dateIso] = {};
+  state.checkin[dateIso][field] = value;
+  return true;
+};
+
+HK.setExercise = (state, dateIso, level) => { state.exercise[dateIso] = level; return state; };
+
 // ---------------- イベント記録 ----------------
 
-HK.logEvent = (state, type, label, nowMs) => {
+HK.logEvent = (state, type, label, nowMs, tier) => {
   const e = { id: state.nextEventId++, t: nowMs, type, label: label || null };
+  if (type === "MEAL") e.tier = tier || 2;
   state.events.push(e);
+  state.events.sort((a, b) => a.t - b.t);
   return e.id;
 };
 
-HK.undoLastEvent = (state) => state.events.pop() || null;
+HK.undoEventById = (state, id) => HK.deleteEventById(state, id);
 
 HK.deleteEventById = (state, id) => {
   const before = state.events.length;
@@ -167,7 +192,6 @@ HK.deleteEventById = (state, id) => {
   return state.events.length < before;
 };
 
-/** 時刻の修正(あとからのまとめ入力用)。修正後は時系列に並べ直す */
 HK.updateEventTime = (state, id, newMs) => {
   const e = state.events.find((x) => x.id === id);
   if (!e) return false;
@@ -176,8 +200,17 @@ HK.updateEventTime = (state, id, newMs) => {
   return true;
 };
 
+/** 食事の店を後から設定(3段階タップ→店は任意、の2段目) */
+HK.setEventLabel = (state, id, label) => {
+  const e = state.events.find((x) => x.id === id);
+  if (!e) return false;
+  e.label = label;
+  return true;
+};
+
+/** 論理日でイベントを取得 */
 HK.eventsOn = (state, dateIso) =>
-  state.events.filter((e) => HK.dateIso(e.t) === dateIso);
+  state.events.filter((e) => HK.logicalDateIso(e.t) === dateIso);
 
 // ---------------- 週次集計 ----------------
 
@@ -189,7 +222,6 @@ HK.parseHHmm = (s) => {
   return h * 60 + m;
 };
 
-/** 就寝時刻平均・深夜0時またぎ対応(正午からの経過分で平均) */
 HK.averageBedTimeHHmm = (times) => {
   const msn = times.map(HK.parseHHmm).filter((v) => v != null)
     .map((v) => (v - 720 + 1440) % 1440);
@@ -208,16 +240,23 @@ const countBy = (labels) => {
   for (const l of labels) if (l) m[l] = (m[l] || 0) + 1;
   return m;
 };
+const avgOrNull = (vals, round) => {
+  const v = vals.filter((x) => x != null);
+  if (!v.length) return null;
+  const a = v.reduce((x, y) => x + y, 0) / v.length;
+  return round ? Math.round(a * 100) / 100 : Math.floor(a);
+};
 
-/** 直近 n 日の DaySummary 配列(古い順) */
+/** 直近 n 論理日の DaySummary 配列(古い順)。endMs はその論理日に含まれる時刻 */
 HK.buildDaySummaries = (state, endMs, nDays) => {
   const days = [];
   for (let i = nDays - 1; i >= 0; i--) {
-    const iso = HK.dateIso(endMs - i * 86400000);
+    const iso = HK.logicalDateIso(endMs - i * 86400000);
     const ev = HK.eventsOn(state, iso);
-    const sl = state.sleep[iso] || null;
-    const mood = state.mood[iso] || null;
+    const sl = state.sleep[iso] || null;   // 起床日=論理日(起床は4-12時)
+    const ck = state.checkin[iso] || {};
     const of = (t) => ev.filter((e) => e.type === t);
+    const meals = of("MEAL");
     days.push({
       dateIso: iso,
       sleepDurationMin: sl ? sl.durationMin : null,
@@ -225,45 +264,43 @@ HK.buildDaySummaries = (state, endMs, nDays) => {
       wakeTimeHHmm: sl ? HK.hhmm(sl.wake) : null,
       coffeeTimesHHmm: of("COFFEE").map((e) => HK.hhmm(e.t)),
       coffeePlaces: of("COFFEE").map((e) => e.label).filter(Boolean),
-      mealLabels: of("MEAL").map((e) => e.label),
-      healthLabels: of("HEALTH").map((e) => e.label),
+      meals: meals.map((e) => ({ tier: e.tier || 2, place: e.label })),
       activityLabels: of("ACTIVITY").map((e) => e.label),
       noMeal: of("NO_MEAL").length > 0,
-      moodScore: mood ? mood.score : null,
-      steps: null // PWAでは歩数センサー非対応(native移行時に有効化)
+      mood: ck.mood != null ? ck.mood : null,
+      focus: ck.focus != null ? ck.focus : null,
+      irritation: ck.irritation != null ? ck.irritation : null,
+      exercise: state.exercise[iso] != null ? state.exercise[iso] : null,
+      steps: null
     });
   }
   return days;
 };
 
-/** 過去週の要約 */
 HK.buildPastWeeks = (state, endMs, nWeeks) => {
   const weeks = [];
   for (let w = nWeeks; w >= 1; w--) {
     const weekEnd = endMs - w * 7 * 86400000;
     const days = HK.buildDaySummaries(state, weekEnd, 7);
-    const sleepVals = days.map((d) => d.sleepDurationMin).filter((v) => v != null);
-    const moodVals = days.map((d) => d.moodScore).filter((v) => v != null);
     const coffee = [].concat(...days.map((d) => d.coffeeTimesHHmm));
     weeks.push({
       weekStartIso: HK.weekStartIso(weekEnd - 6 * 86400000),
-      sleepAvgMin: sleepVals.length ? Math.floor(sleepVals.reduce((a, b) => a + b) / sleepVals.length) : null,
+      sleepAvgMin: avgOrNull(days.map((d) => d.sleepDurationMin)),
       coffeeAfter21Count: HK.countLateCoffee(coffee),
-      moodAvg: moodVals.length ? moodVals.reduce((a, b) => a + b) / moodVals.length : null
+      moodAvg: avgOrNull(days.map((d) => d.mood), true)
     });
   }
   return weeks;
 };
 
-/** Gemini 送信ペイロード */
 HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
   const sleepVals = days.map((d) => d.sleepDurationMin).filter((v) => v != null);
-  const moodVals = days.map((d) => d.moodScore).filter((v) => v != null);
   const allCoffee = [].concat(...days.map((d) => d.coffeeTimesHHmm));
-  const round2 = (x) => Math.round(x * 100) / 100;
+  const allMeals = [].concat(...days.map((d) => d.meals));
+  const tierCount = (t) => allMeals.filter((m) => m.tier === t).length;
   return {
     this_week_stats: {
-      sleep_avg_min: sleepVals.length ? Math.floor(sleepVals.reduce((a, b) => a + b) / sleepVals.length) : null,
+      sleep_avg_min: avgOrNull(sleepVals),
       sleep_min_min: sleepVals.length ? Math.min(...sleepVals) : null,
       sleep_max_min: sleepVals.length ? Math.max(...sleepVals) : null,
       sleep_recorded_days: sleepVals.length,
@@ -271,22 +308,24 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
       coffee_total: allCoffee.length,
       coffee_after_21: HK.countLateCoffee(allCoffee),
       coffee_place_counts: countBy([].concat(...days.map((d) => d.coffeePlaces))),
-      meal_counts: countBy([].concat(...days.map((d) => d.mealLabels))),
-      health_counts: countBy([].concat(...days.map((d) => d.healthLabels))),
+      meal_tier_counts: { good: tierCount(1), normal: tierCount(2), junk: tierCount(3) },
+      meal_place_counts: countBy(allMeals.map((m) => m.place)),
       activity_counts: countBy([].concat(...days.map((d) => d.activityLabels))),
-      mood_avg: moodVals.length ? round2(moodVals.reduce((a, b) => a + b) / moodVals.length) : null,
-      steps_avg: null
+      mood_avg: avgOrNull(days.map((d) => d.mood), true),
+      focus_avg: avgOrNull(days.map((d) => d.focus), true),
+      irritation_avg: avgOrNull(days.map((d) => d.irritation), true),
+      exercise_avg: avgOrNull(days.map((d) => d.exercise), true)
     },
     days: days.map((d) => ({
       date: d.dateIso, sleep_min: d.sleepDurationMin, bed: d.bedTimeHHmm, wake: d.wakeTimeHHmm,
       coffee: d.coffeeTimesHHmm, coffee_places: d.coffeePlaces,
-      meals: d.mealLabels, healthy_foods: d.healthLabels, activities: d.activityLabels,
-      no_meal: d.noMeal, mood: d.moodScore, steps: d.steps
+      meals: d.meals.map((m) => ({ tier: HK.MEAL_TIERS[m.tier], place: m.place })),
+      activities: d.activityLabels, no_meal: d.noMeal,
+      mood: d.mood, focus: d.focus, irritation: d.irritation, exercise: d.exercise
     })),
     past_weeks: pastWeeks.map((w) => ({
       week_start: w.weekStartIso, sleep_avg_min: w.sleepAvgMin,
-      coffee_after_21: w.coffeeAfter21Count,
-      mood_avg: w.moodAvg == null ? null : round2(w.moodAvg)
+      coffee_after_21: w.coffeeAfter21Count, mood_avg: w.moodAvg
     })),
     last_week_experiment: lastExperiment || null
   };
@@ -299,9 +338,11 @@ HK.USER_PROFILE = [
   "- 健診結果は良好。酒・タバコなし。体型は普通。",
   "- 食事は夜1食か夕方+夜の2食。朝昼は空腹にならず、食べると眠くなるため食べない。",
   "  これは本人の選択であり尊重する。矯正提案は禁止。",
-  "- 外食ローテーション: マクドナルド/日高屋/サイゼリヤ/松屋/スシロー/大戸屋/自炊。",
-  "- 野菜・魚など健康的な食品の摂取も記録している(healthy_foods)。増えていたら素直に認めてよい。",
-  "- コーヒー習慣あり(店舗も記録)。21時以降のカフェインが睡眠を阻害する自覚あり。",
+  "- 食事内容は3段階で記録: good(魚・野菜など体に良い)/normal/junk(ファストフード等)。店は任意記録。",
+  "  goodが増えていたら素直に認めてよい。junkを責めない。",
+  "- コーヒー習慣あり(店舗も任意記録)。21時以降のカフェインが睡眠を阻害する自覚あり。",
+  "- 夜のチェックイン: mood 気分(1-5) / focus 仕事のはかどり(1-4) / irritation イラッと度(0-3)。",
+  "- exercise はその日の運動量の自己評価(0=全然〜3=たくさん)。activitiesは階段・散歩などの瞬間記録。",
   "- 睡眠不足がイライラと集中力低下に直結する。改善の最優先ターゲットは睡眠。",
   "- 運動の現実的選択肢は「自宅マンション11Fまでの階段」と「散歩」のみ。朝運動は不適(眠くなる)。",
   "- 価値観: 子供2人との時間を最優先したい。生活改善の目的は本人と家族の未来の幸せの最大化。"
@@ -316,7 +357,7 @@ HK.SYSTEM_PROMPT = [
   "- 提案する実験は必ず1つだけ。来週試せる、5分以内またはゼロ努力のものに限る。",
   "- 1日1〜2食の食事スタイルは本人の合理的な選択として尊重し、食事回数への言及・矯正提案をしない。",
   "- データにないことを推測で断定しない。欠損日は欠損として扱い、記録しなかったことを責めない。",
-  "- 睡眠改善を最優先。特にカフェイン時刻・就寝時刻・気分の相関に注目する。",
+  "- 睡眠改善を最優先。カフェイン時刻・就寝時刻と、気分/はかどり/イラッと度の相関に注目する。",
   "- トーンは有能な同僚。敬意はあるが馴れ馴れしくない。絵文字は使わない。",
   "- 全フィールド合計で400字以内。",
   "",
@@ -338,18 +379,24 @@ HK.buildGeminiRequestBody = (payload) => ({
     role: "user",
     parts: [{ text: "以下が今週のデータです。週次レポートを生成してください。\n\n" + JSON.stringify(payload) }]
   }],
-  generationConfig: { responseMimeType: "application/json", temperature: 0.7, maxOutputTokens: 1024 }
+  // 思考型モデルは思考にもトークンを使うため上限を大きめに確保する
+  generationConfig: { responseMimeType: "application/json", temperature: 0.7, maxOutputTokens: 4096 }
 });
 
+/** 思考(thought)パーツを除外して本文テキストを抽出。失敗時は {error, detail} */
 HK.parseGeminiResponse = (respJson) => {
   try {
-    const text = respJson.candidates[0].content.parts[0].text;
+    const cand = respJson.candidates && respJson.candidates[0];
+    if (!cand) throw new Error("no candidates: " + JSON.stringify(respJson).slice(0, 300));
+    const parts = (cand.content && cand.content.parts) || [];
+    const text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("");
+    if (!text) throw new Error("empty text (finishReason=" + (cand.finishReason || "?") + ")");
     const clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
     const o = JSON.parse(clean);
-    if (!o.experiment || typeof o.experiment !== "object") throw new Error("no experiment");
+    if (!o.experiment || typeof o.experiment !== "object") throw new Error("no experiment in JSON");
     return { report: o };
   } catch (e) {
-    return { error: "レポートの解析に失敗しました。手動で再生成できます。", detail: String(e) };
+    return { error: "レポートの解析に失敗しました。手動で再生成できます。", detail: String(e && e.message || e) };
   }
 };
 
