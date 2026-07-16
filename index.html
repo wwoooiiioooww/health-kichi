@@ -25,6 +25,8 @@ button{font-family:inherit; border:none; cursor:pointer; color:inherit; backgrou
 input{font-family:inherit; font-size:16px; color:var(--text);
   background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%}
 input:focus,button:focus-visible{outline:2px solid var(--moon); outline-offset:2px}
+input::placeholder{color:#4E5A73; font-style:italic}
+.dial{cursor:pointer}
 
 header{display:flex; align-items:baseline; justify-content:space-between; padding:20px 20px 8px}
 header .date{font-size:22px; font-weight:700}
@@ -149,6 +151,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     <div class="card" id="checkinCard">
       <h2>今日のチェックイン</h2>
       <div id="ckHome"></div>
+      <input id="noteHome" data-note="" placeholder="ひとことメモ(任意) 例: 終日眠かった / ずっと客先" maxlength="80" style="margin-top:10px">
     </div>
     <div class="card">
       <h2>きろく(1タップ)</h2>
@@ -156,7 +159,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div class="chips g3 tier" id="tierBtns"></div>
       <div class="placerow hidden" id="placeRow"></div>
       <div class="chips" style="margin-top:8px"><button class="no-meal" data-nomeal="1">今日は食べてない</button></div>
-      <div class="subh">☕ コーヒー</div><div class="chips g3" id="coffeeChips"></div>
+      <div class="subh">☕ カフェイン</div>
+      <div class="chips"><button type="button" class="no-meal" data-latecoffee="1" style="color:var(--text)">☕ 21時以降にコーヒーを飲んだ</button></div>
       <div class="subh">🏃 運動(その場で)</div><div class="chips g3" id="activityChips"></div>
       <div class="subh">💪 今日の運動量</div>
       <div class="seg" id="exHome"></div>
@@ -175,11 +179,15 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div class="daystrip" id="dayStrip"></div>
       <div id="dayEditor"></div>
     </div>
-    <div class="card"><h2>睡眠(直近14日)</h2><div id="chartSleep"></div>
-      <div class="legend">点線: 期間平均</div></div>
-    <div class="card"><h2>コーヒーの時刻(直近14日)</h2><div id="chartCoffee"></div>
-      <div class="legend">赤点線: 21:00(カフェイン注意ライン)</div></div>
-    <div class="card"><h2>きぶん(直近14日)</h2><div id="chartMood"></div></div>
+    <div class="card" style="padding:12px 18px">
+      <div class="seg" id="periodSeg"></div>
+    </div>
+    <div class="card"><h2>睡眠</h2><div id="chartSleep"></div>
+      <div class="legend">点線: 期間平均 / 週別ビューは週平均</div></div>
+    <div class="card"><h2>☕ 21時以降のコーヒー</h2><div id="chartCoffee"></div>
+      <div class="legend">日別: 時刻の散布(赤点線=21時) / 週別: 回数</div></div>
+    <div class="card"><h2>こころ</h2><div id="chartMood"></div>
+      <div class="legend"><span style="color:var(--good)">●きぶん</span> <span style="color:var(--moon)">●はかどり</span> <span style="color:var(--bad)">●イラッと</span></div></div>
     <div class="card"><h2>過去のレポート</h2><div id="reportHistory"></div></div>
   </section>
 
@@ -305,8 +313,10 @@ function renderSleep(){
     html += `<div class="sleep-body">${dialSvg(sl.bed, sl.wake)}
       <div class="sleep-info"><div class="dur">${fmtDur(sl.durationMin)}</div>
         <div class="times">${HK.hhmm(sl.bed)} → ${HK.hhmm(sl.wake)}</div>
-        <div class="src">${sl.source==="AUTO"?"自動記録":"手動記録"}</div>
-        <button class="btn-ghost" id="btnFix">修正する</button></div></div>`;
+        <div class="src">${sl.source==="AUTO"?"自動記録":"手動記録"} / 時計をタップで修正</div></div></div>
+      <div class="ckrow" style="margin-top:12px"><span class="lbl">眠りの質</span>
+        <div class="seg">${Q_OPTS.map(([v,lab]) =>
+          `<button type="button" class="${sl.quality===v?"sel":""}" data-q="${v}:${t}">${lab}</button>`).join("")}</div></div>`;
   } else if(state.pendingBed == null && h >= 4 && h < 12){
     html += `<p style="font-size:15px; margin:0">昨夜の睡眠がまだ記録されていません。</p>
       <button class="btn-big" id="btnQuickSet">昨夜の睡眠を入れる(10秒)</button>`;
@@ -320,7 +330,7 @@ function renderSleep(){
       <p class="note" style="margin:8px 0 0">タップしなくても、夜このアプリを触っていれば朝開くだけで自動記録されます。</p>`;
   }
   el.innerHTML = html;
-  const fix = $("btnFix"); if(fix) fix.onclick = () => openSleepDialog(t, sl);
+  const dial = el.querySelector(".dial"); if(dial) dial.addEventListener("click", () => openSleepDialog(t, sl));
   const qs = $("btnQuickSet"); if(qs) qs.onclick = () => openSleepDialog(t, null);
   const cb = $("btnCancelBed"); if(cb) cb.onclick = () => { state.pendingBed = null; save(); renderSleep(); };
   const bb = $("btnBed"); if(bb) bb.onclick = () => {
@@ -351,8 +361,9 @@ $("btnSleepSave").onclick = () => {
 const CK_DEFS = [
   { f:"mood", label:"きぶん", emoji:true, opts:[[1,"😫"],[2,"😕"],[3,"😐"],[4,"🙂"],[5,"😊"]] },
   { f:"focus", label:"はかどり", opts:[[1,"全然"],[2,"すこし"],[3,"ふつう"],[4,"がっつり"]] },
-  { f:"irritation", label:"イラッと", opts:[[0,"なし"],[1,"すこし"],[2,"けっこう"],[3,"ずっと"]] }
+  { f:"irritation", label:"イラッと", opts:[[3,"ずっと"],[2,"けっこう"],[1,"すこし"],[0,"なし"]] }
 ];
+const Q_OPTS = [[1,"😵 あさい"],[2,"😐 ふつう"],[3,"😴 ぐっすり"]];
 const EX_OPTS = [[0,"全然"],[1,"すこし"],[2,"ふつう"],[3,"たくさん"]];
 
 function checkinRowsHtml(dateIso){
@@ -370,7 +381,17 @@ function exerciseRowHtml(dateIso, elIdOnly){
 function renderCheckinHome(){
   $("ckHome").innerHTML = checkinRowsHtml(lToday());
   $("exHome").innerHTML = exerciseRowHtml(lToday());
+  const n = $("noteHome");
+  n.dataset.note = lToday();
+  n.value = (state.checkin[lToday()] || {}).note || "";
 }
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if(t.matches && t.matches("input[data-note]")){
+    HK.setCheckin(state, t.dataset.note, "note", t.value.trim()); save();
+    if(t.value.trim()) toast("メモを保存しました");
+  }
+});
 document.addEventListener("click", (e) => {
   const ck = e.target.closest("button[data-ck]");
   if(ck){
@@ -384,20 +405,24 @@ document.addEventListener("click", (e) => {
     HK.setExercise(state, d, +v); save();
     renderCheckinHome(); renderDayEditor();
   }
+  const q = e.target.closest("button[data-q]");
+  if(q){
+    const [v, d] = q.dataset.q.split(":");
+    HK.setSleepQuality(state, d, +v); save();
+    renderSleep(); renderDayEditor();
+  }
 });
 
 /* ================= クイックログ ================= */
 let logTargetDate = null; // null = 今日(論理日)。日エディタで過去日に切替
 const targetDate = () => logTargetDate || lToday();
-const TIERS = [[1,"🟢 体にいい","tG"],[2,"🟡 ふつう","tN"],[3,"🔴 ジャンク","tJ"]];
+const TIERS = [[3,"🔴 ジャンク","tJ"],[2,"🟡 ふつう","tN"],[1,"🟢 体にいい","tG"]];
 const TIER_MARK = {1:"🟢",2:"🟡",3:"🔴"};
 const TYPE_ICON = {MEAL:"🍽", COFFEE:"☕", ACTIVITY:"🏃", NO_MEAL:"—"};
 
 function renderChips(){
   $("tierBtns").innerHTML = TIERS.map(([t,lab,cls]) =>
     `<button type="button" class="${cls}" data-tier="${t}">${lab}</button>`).join("");
-  $("coffeeChips").innerHTML = state.settings.coffeeChips.map(c =>
-    `<button type="button" data-g="COFFEE" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("");
   $("activityChips").innerHTML = state.settings.activityChips.map(c =>
     `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("");
 }
@@ -423,6 +448,16 @@ document.addEventListener("click", (e) => {
   if(nm){
     const id = logAt("NO_MEAL", null);
     toast("食べてない を記録", () => { HK.deleteEventById(state, id); save(); renderTodayLog(); renderDayEditor(); });
+    return;
+  }
+  const lc = e.target.closest("button[data-latecoffee]");
+  if(lc){
+    const tgt = targetDate();
+    const h = new Date().getHours();
+    const ms = (tgt === lToday() && (h >= 21 || h < 4)) ? Date.now() : HK.msFromLogicalDate(tgt, 21*60+30);
+    const id = HK.logEvent(state, "COFFEE", null, ms);
+    save(); renderTodayLog(); renderDayEditor();
+    toast("☕ 21時以降のコーヒーを記録", () => { HK.deleteEventById(state, id); save(); renderTodayLog(); renderDayEditor(); });
     return;
   }
   const b = e.target.closest("button[data-g]");
@@ -452,7 +487,9 @@ document.addEventListener("click", (e) => {
 });
 
 function eventLine(e){
-  const name = e.type === "NO_MEAL" ? "食べてない" : (e.label || (e.type === "MEAL" ? "食事" : ""));
+  const name = e.type === "NO_MEAL" ? "食べてない"
+    : e.type === "COFFEE" ? (e.label || "コーヒー")
+    : (e.label || (e.type === "MEAL" ? "食事" : ""));
   const tier = e.type === "MEAL" ? `<span class="tierdot">${TIER_MARK[e.tier||2]}</span>` : "";
   return `<li data-eid="${e.id}"><time>${HK.hhmm(e.t)}</time><span>${TYPE_ICON[e.type]||""} ${esc(name)}</span>${tier}</li>`;
 }
@@ -583,68 +620,126 @@ function renderDayEditor(){
     <div style="display:flex; justify-content:space-between; align-items:center">
       <span style="font-size:14px">${sl ? `${HK.hhmm(sl.bed)} → ${HK.hhmm(sl.wake)} (${Math.floor(sl.durationMin/60)}h${sl.durationMin%60}m)` : "記録なし"}</span>
       <button type="button" class="btn-ghost" id="btnEditSleep">${sl?"修正":"入力"}</button></div>
+    ${sl ? `<div class="ckrow"><span class="lbl">眠りの質</span><div class="seg">${Q_OPTS.map(([v,lab]) =>
+      `<button type="button" class="${sl.quality===v?"sel":""}" data-q="${v}:${editDate}">${lab}</button>`).join("")}</div></div>` : ""}
     <div class="subh">チェックイン</div>${checkinRowsHtml(editDate)}
+    <input data-note="${editDate}" value="${esc((state.checkin[editDate]||{}).note||"")}"
+      placeholder="ひとことメモ(任意)" maxlength="80" style="margin:8px 0 2px">
     <div class="subh">💪 運動量</div><div class="seg">${exerciseRowHtml(editDate)}</div>
     <div class="subh">この日のログ(タップで修正・削除)</div>
     <ul class="log">${ev.length ? ev.map(eventLine).join("") : `<li class="empty">記録なし</li>`}</ul>
     <div class="subh">記録を追加(19時起点で入ります。時間はあとで調整)</div>
     <div class="chips g3 tier" style="margin-bottom:8px">${TIERS.map(([t,lab,cls]) =>
       `<button type="button" class="${cls}" data-tier="${t}">${lab}</button>`).join("")}</div>
-    <div class="chips g3">${state.settings.coffeeChips.slice(0,3).map(c =>
-      `<button type="button" data-g="COFFEE" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("")}
-    ${state.settings.activityChips.slice(0,3).map(c =>
+    <div class="chips g3"><button type="button" data-latecoffee="1">☕ 21時〜</button>
+    ${state.settings.activityChips.slice(0,2).map(c =>
       `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("")}</div>`;
   el.querySelectorAll("li[data-eid]").forEach(li => li.onclick = () => openEventDialog(+li.dataset.eid));
   const es = el.querySelector("#btnEditSleep");
   if(es) es.onclick = () => openSleepDialog(editDate, sl || null);
 }
 
-/* ================= 履歴: グラフ ================= */
+/* ================= 履歴: グラフ(日別/月間/週別) ================= */
+let histPeriod = "14d"; // "14d" | "30d" | "12w"
+const PERIODS = [["14d","2週間"],["30d","1ヶ月"],["12w","週別(3ヶ月)"]];
+function renderPeriodSeg(){
+  $("periodSeg").innerHTML = PERIODS.map(([k,lab]) =>
+    `<button type="button" class="${histPeriod===k?"sel":""}" data-period="${k}">${lab}</button>`).join("");
+}
+document.addEventListener("click", (e) => {
+  const p = e.target.closest("button[data-period]");
+  if(p){ histPeriod = p.dataset.period; renderHistory(); }
+});
+
+const CW=520, CP=24;
+function svgOpen(h){ return `<svg class="chart" viewBox="0 0 ${CW} ${h}">`; }
+function xPos(i, n){ return CP + i * ((CW - 2*CP) / n); }
+
 function renderHistory(){
-  renderDayStrip(); renderDayEditor();
-  const days = HK.buildDaySummaries(state, Date.now(), 14);
-  const W=520,H=150,P=24, bw=(W-2*P)/14-6;
-  const maxMin = Math.max(480, ...days.map(d=>d.sleepDurationMin||0));
-  const vals = days.map(d=>d.sleepDurationMin).filter(v=>v!=null);
+  renderDayStrip(); renderDayEditor(); renderPeriodSeg();
+  const weekly = histPeriod === "12w";
+  const n = histPeriod === "14d" ? 14 : histPeriod === "30d" ? 30 : 12;
+  const step = histPeriod === "14d" ? 2 : histPeriod === "30d" ? 5 : 2;
+  const items = weekly
+    ? HK.buildWeeklySeries(state, Date.now(), 12).map(w => ({
+        label: w.weekStartIso.slice(5).replace("-","/"),
+        sleep: w.sleepAvgMin, mood: w.moodAvg, focus: w.focusAvg,
+        irritation: w.irritationAvg, lateCoffee: w.lateCoffee, coffeeTimes: [] }))
+    : HK.buildDaySummaries(state, Date.now(), n).map(d => ({
+        label: d.dateIso.slice(8),
+        sleep: d.sleepDurationMin, mood: d.mood, focus: d.focus,
+        irritation: d.irritation, lateCoffee: null, coffeeTimes: d.coffeeTimesHHmm }));
+  const bw = (CW - 2*CP)/n - (weekly ? 10 : n > 20 ? 3 : 6);
+
+  // --- 睡眠 ---
+  const H=150;
+  const maxMin = Math.max(480, ...items.map(d => d.sleep || 0));
+  const vals = items.map(d => d.sleep).filter(v => v != null);
   const avg = vals.length ? vals.reduce((a,b)=>a+b)/vals.length : null;
-  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}">`;
-  days.forEach((d,i)=>{
-    const x=P+i*((W-2*P)/14);
-    if(d.sleepDurationMin!=null){
-      const hh=(d.sleepDurationMin/maxMin)*(H-40);
+  let s = svgOpen(H);
+  items.forEach((d,i)=>{
+    const x = xPos(i, n);
+    if(d.sleep != null){
+      const hh=(d.sleep/maxMin)*(H-40);
       s+=`<rect x="${x}" y="${H-24-hh}" width="${bw}" height="${hh}" rx="3" fill="var(--moon)" opacity=".85"/>`;
     } else s+=`<rect x="${x}" y="${H-27}" width="${bw}" height="3" rx="1.5" fill="var(--line)"/>`;
-    if(i%2===0) s+=`<text x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.dateIso.slice(8)}</text>`;
+    if(i%step===0) s+=`<text x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
   });
-  if(avg){ const y=H-24-(avg/maxMin)*(H-40);
-    s+=`<line x1="${P}" x2="${W-P}" y1="${y}" y2="${y}" stroke="var(--amber)" stroke-dasharray="4 4" stroke-width="1"/>
-        <text x="${W-P}" y="${y-4}" text-anchor="end">${Math.floor(avg/60)}h${Math.round(avg%60)}m</text>`; }
+  if(avg != null){ const y=H-24-(avg/maxMin)*(H-40);
+    s+=`<line x1="${CP}" x2="${CW-CP}" y1="${y}" y2="${y}" stroke="var(--amber)" stroke-dasharray="4 4" stroke-width="1"/>
+        <text x="${CW-CP}" y="${y-4}" text-anchor="end">${Math.floor(avg/60)}h${Math.round(avg%60)}m</text>`; }
   $("chartSleep").innerHTML = s + "</svg>";
 
-  let c = `<svg class="chart" viewBox="0 0 ${W} ${H}">`;
-  const y21 = H-24-((21-6)/18)*(H-40);
-  c+=`<line x1="${P}" x2="${W-P}" y1="${y21}" y2="${y21}" stroke="var(--bad)" stroke-dasharray="4 4" stroke-width="1"/>`;
-  [6,12,18,24].forEach(hh=>{ const y=H-24-((hh-6)/18)*(H-40); c+=`<text x="4" y="${y+3}">${hh%24}</text>`; });
-  days.forEach((d,i)=>{
-    const x=P+i*((W-2*P)/14)+bw/2;
-    d.coffeeTimesHHmm.forEach(t=>{
-      let m=HK.parseHHmm(t); if(m==null) return;
-      let hr=m/60; if(hr<6) hr+=24;
-      c+=`<circle cx="${x}" cy="${H-24-((hr-6)/18)*(H-40)}" r="4" fill="var(--amber)" opacity=".9"/>`;
+  // --- コーヒー ---
+  let c = svgOpen(H);
+  if(weekly){
+    const maxC = Math.max(3, ...items.map(d => d.lateCoffee || 0));
+    items.forEach((d,i)=>{
+      const x = xPos(i, n);
+      const hh = ((d.lateCoffee||0)/maxC)*(H-40);
+      c+=`<rect x="${x}" y="${H-24-hh}" width="${bw}" height="${Math.max(hh,2)}" rx="3" fill="var(--amber)" opacity=".85"/>`;
+      if(d.lateCoffee) c+=`<text x="${x+bw/2}" y="${H-28-hh}" text-anchor="middle">${d.lateCoffee}</text>`;
+      if(i%step===0) c+=`<text x="${x+bw/2}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
     });
-    if(i%2===0) c+=`<text x="${x}" y="${H-8}" text-anchor="middle">${d.dateIso.slice(8)}</text>`;
-  });
+  } else {
+    const y21 = H-24-((21-6)/18)*(H-40);
+    c+=`<line x1="${CP}" x2="${CW-CP}" y1="${y21}" y2="${y21}" stroke="var(--bad)" stroke-dasharray="4 4" stroke-width="1"/>`;
+    [6,12,18,24].forEach(hh=>{ const y=H-24-((hh-6)/18)*(H-40); c+=`<text x="4" y="${y+3}">${hh%24}</text>`; });
+    items.forEach((d,i)=>{
+      const x = xPos(i, n)+bw/2;
+      d.coffeeTimes.forEach(t=>{
+        let m=HK.parseHHmm(t); if(m==null) return;
+        let hr=m/60; if(hr<6) hr+=24;
+        c+=`<circle cx="${x}" cy="${H-24-((hr-6)/18)*(H-40)}" r="4" fill="var(--amber)" opacity=".9"/>`;
+      });
+      if(i%step===0) c+=`<text x="${x}" y="${H-8}" text-anchor="middle">${d.label}</text>`;
+    });
+  }
   $("chartCoffee").innerHTML = c + "</svg>";
 
-  let mc = `<svg class="chart" viewBox="0 0 ${W} 120">`;
-  const pts=[];
-  days.forEach((d,i)=>{
-    const x=P+i*((W-2*P)/14)+bw/2;
-    if(d.mood!=null){ const y=100-((d.mood-1)/4)*80;
-      pts.push([x,y]); mc+=`<circle cx="${x}" cy="${y}" r="4" fill="var(--good)"/>`; }
-    if(i%2===0) mc+=`<text x="${x}" y="116" text-anchor="middle">${d.dateIso.slice(8)}</text>`;
+  // --- こころ(気分/はかどり/イラッと を0-1に正規化した3系列) ---
+  const MH=130;
+  const series = [
+    { key:"mood", color:"var(--good)", norm:(v)=>(v-1)/4 },
+    { key:"focus", color:"var(--moon)", norm:(v)=>(v-1)/3 },
+    { key:"irritation", color:"var(--bad)", norm:(v)=>v/3 }
+  ];
+  let mc = svgOpen(MH);
+  for(const sr of series){
+    const pts=[];
+    items.forEach((d,i)=>{
+      const v = d[sr.key];
+      if(v != null){
+        const x = xPos(i, n)+bw/2, y = 10 + (1 - sr.norm(v)) * (MH-40);
+        pts.push([x,y]);
+        mc+=`<circle cx="${x}" cy="${y}" r="3.5" fill="${sr.color}"/>`;
+      }
+    });
+    if(pts.length>1) mc+=`<polyline points="${pts.map(p=>p.join(",")).join(" ")}" fill="none" stroke="${sr.color}" stroke-width="1.5" opacity=".55"/>`;
+  }
+  items.forEach((d,i)=>{
+    if(i%step===0) mc+=`<text x="${xPos(i,n)+bw/2}" y="${MH-8}" text-anchor="middle">${d.label}</text>`;
   });
-  if(pts.length>1) mc+=`<polyline points="${pts.map(p=>p.join(",")).join(" ")}" fill="none" stroke="var(--good)" stroke-width="1.5" opacity=".6"/>`;
   $("chartMood").innerHTML = mc + "</svg>";
 
   $("reportHistory").innerHTML = state.reports.length
@@ -656,7 +751,7 @@ function renderHistory(){
 }
 
 /* ================= 設定 ================= */
-const CHIP_GROUPS = [["mealChips","🍽 食事の店"],["coffeeChips","☕ コーヒーの店"],["activityChips","🏃 運動の種類"]];
+const CHIP_GROUPS = [["mealChips","🍽 食事の店"],["activityChips","🏃 運動の種類"]];
 function renderSettings(){
   $("inKey").value = state.settings.apiKey || "";
   $("inModel").value = state.settings.model || "";
@@ -775,7 +870,19 @@ function handleWakeResult(r){
     }
     HK.touch(state, Date.now()); save();
   });
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+  // 自動更新: 起動時+1時間ごとに新バージョンを確認し、切替時に一度だけリロード
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("sw.js").then(reg => {
+      reg.update();
+      setInterval(() => reg.update(), 60 * 60 * 1000);
+    }).catch(()=>{});
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if(reloaded) return;
+      reloaded = true;
+      location.reload();
+    });
+  }
 })();
 </script>
 </body>

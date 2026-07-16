@@ -70,7 +70,7 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 3,
+  version: 4,
   events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label, tier(MEALのみ1-3)}
   nextEventId: 1,
   sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
@@ -110,7 +110,7 @@ HK.migrate = (s) => {
     delete s.mood;
   }
   delete s.settings.healthChips;
-  s.version = 3;
+  s.version = 4;
   return s;
 };
 
@@ -166,9 +166,17 @@ HK.setSleepManual = (state, dateIso, bedMs, wakeMs) => {
 // ---------------- チェックイン・運動量 ----------------
 
 HK.setCheckin = (state, dateIso, field, value) => {
-  if (!["mood", "focus", "irritation"].includes(field)) return false;
+  if (!["mood", "focus", "irritation", "note"].includes(field)) return false;
   if (!state.checkin[dateIso]) state.checkin[dateIso] = {};
   state.checkin[dateIso][field] = value;
+  return true;
+};
+
+/** 起床後の「眠りの質」1-3(1=あさい, 2=ふつう, 3=ぐっすり) */
+HK.setSleepQuality = (state, dateIso, quality) => {
+  const sl = state.sleep[dateIso];
+  if (!sl) return false;
+  sl.quality = quality;
   return true;
 };
 
@@ -260,8 +268,10 @@ HK.buildDaySummaries = (state, endMs, nDays) => {
     days.push({
       dateIso: iso,
       sleepDurationMin: sl ? sl.durationMin : null,
+      sleepQuality: sl && sl.quality != null ? sl.quality : null,
       bedTimeHHmm: sl ? HK.hhmm(sl.bed) : null,
       wakeTimeHHmm: sl ? HK.hhmm(sl.wake) : null,
+      note: ck.note ? String(ck.note).slice(0, 80) : null,
       coffeeTimesHHmm: of("COFFEE").map((e) => HK.hhmm(e.t)),
       coffeePlaces: of("COFFEE").map((e) => e.label).filter(Boolean),
       meals: meals.map((e) => ({ tier: e.tier || 2, place: e.label })),
@@ -304,6 +314,7 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
       sleep_min_min: sleepVals.length ? Math.min(...sleepVals) : null,
       sleep_max_min: sleepVals.length ? Math.max(...sleepVals) : null,
       sleep_recorded_days: sleepVals.length,
+      sleep_quality_avg: avgOrNull(days.map((d) => d.sleepQuality), true),
       bed_time_avg: HK.averageBedTimeHHmm(days.map((d) => d.bedTimeHHmm).filter((v) => v != null)),
       coffee_total: allCoffee.length,
       coffee_after_21: HK.countLateCoffee(allCoffee),
@@ -317,11 +328,13 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
       exercise_avg: avgOrNull(days.map((d) => d.exercise), true)
     },
     days: days.map((d) => ({
-      date: d.dateIso, sleep_min: d.sleepDurationMin, bed: d.bedTimeHHmm, wake: d.wakeTimeHHmm,
+      date: d.dateIso, sleep_min: d.sleepDurationMin, sleep_quality: d.sleepQuality,
+      bed: d.bedTimeHHmm, wake: d.wakeTimeHHmm,
       coffee: d.coffeeTimesHHmm, coffee_places: d.coffeePlaces,
       meals: d.meals.map((m) => ({ tier: HK.MEAL_TIERS[m.tier], place: m.place })),
       activities: d.activityLabels, no_meal: d.noMeal,
-      mood: d.mood, focus: d.focus, irritation: d.irritation, exercise: d.exercise
+      mood: d.mood, focus: d.focus, irritation: d.irritation, exercise: d.exercise,
+      note: d.note
     })),
     past_weeks: pastWeeks.map((w) => ({
       week_start: w.weekStartIso, sleep_avg_min: w.sleepAvgMin,
@@ -329,6 +342,27 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
     })),
     last_week_experiment: lastExperiment || null
   };
+};
+
+/** グラフの週別ビュー用: 直近 n 週の週次平均(古い順) */
+HK.buildWeeklySeries = (state, endMs, nWeeks) => {
+  const out = [];
+  for (let w = nWeeks - 1; w >= 0; w--) {
+    const weekEnd = endMs - w * 7 * 86400000;
+    const days = HK.buildDaySummaries(state, weekEnd, 7);
+    const coffee = [].concat(...days.map((d) => d.coffeeTimesHHmm));
+    out.push({
+      weekStartIso: HK.weekStartIso(weekEnd - 6 * 86400000),
+      sleepAvgMin: avgOrNull(days.map((d) => d.sleepDurationMin)),
+      qualityAvg: avgOrNull(days.map((d) => d.sleepQuality), true),
+      moodAvg: avgOrNull(days.map((d) => d.mood), true),
+      focusAvg: avgOrNull(days.map((d) => d.focus), true),
+      irritationAvg: avgOrNull(days.map((d) => d.irritation), true),
+      exerciseAvg: avgOrNull(days.map((d) => d.exercise), true),
+      lateCoffee: HK.countLateCoffee(coffee)
+    });
+  }
+  return out;
 };
 
 // ---------------- Gemini プロンプト(設計確定事項。変更注意) ----------------
@@ -340,7 +374,10 @@ HK.USER_PROFILE = [
   "  これは本人の選択であり尊重する。矯正提案は禁止。",
   "- 食事内容は3段階で記録: good(魚・野菜など体に良い)/normal/junk(ファストフード等)。店は任意記録。",
   "  goodが増えていたら素直に認めてよい。junkを責めない。",
-  "- コーヒー習慣あり(店舗も任意記録)。21時以降のカフェインが睡眠を阻害する自覚あり。",
+  "- コーヒーは「21時以降に飲んだか」のみ記録する方式(日中の摂取は毎日ほぼ一定のため)。",
+  "  21時以降のカフェインが睡眠を阻害する自覚あり。",
+  "- 睡眠には眠りの質 sleep_quality(1=あさい/2=ふつう/3=ぐっすり)の自己評価が付くことがある。",
+  "- note はその日のひとことメモ(任意)。文脈として重視してよい(例:「終日客先」「プレッシャーが強い」)。",
   "- 夜のチェックイン: mood 気分(1-5) / focus 仕事のはかどり(1-4) / irritation イラッと度(0-3)。",
   "- exercise はその日の運動量の自己評価(0=全然〜3=たくさん)。activitiesは階段・散歩などの瞬間記録。",
   "- 睡眠不足がイライラと集中力低下に直結する。改善の最優先ターゲットは睡眠。",
