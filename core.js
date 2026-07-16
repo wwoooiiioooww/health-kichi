@@ -25,9 +25,15 @@ HK.WAKE_WINDOW_START_HOUR = 4;
 HK.NIGHT_ACTIVE_FROM = 20;
 HK.DAY_START_HOUR = 4;          // 論理日の境界。朝4時より前は「前日」扱い
 
-HK.DEFAULT_MEAL_CHIPS = ["マック", "日高屋", "サイゼ", "松屋", "スシロー", "大戸屋", "自炊", "その他"];
-HK.DEFAULT_COFFEE_CHIPS = ["スタバ", "マクドナルド", "ドトール", "タリーズ", "会社のカフェ", "その他"];
-HK.DEFAULT_ACTIVITY_CHIPS = ["階段", "散歩"];
+// 食事の「種類」(MECE軸。tier=健康度と直交する「何系か」)
+HK.DEFAULT_MEAL_KINDS = ["定食・和食", "麺類", "丼・カレー", "バーガー・FF", "寿司・海鮮", "パン・軽食", "サラダ・野菜", "お菓子・間食"];
+// 食事の「店」(2026年時点の国内店舗数上位チェーンを網羅的に。設定で編集可)
+HK.DEFAULT_MEAL_CHIPS = ["自炊", "コンビニ", "マック", "モス", "KFC", "すき家", "吉野家", "松屋", "なか卯",
+  "スシロー", "はま寿司", "くら寿司", "かっぱ寿司", "丸亀製麺", "日高屋", "餃子の王将", "かつや",
+  "CoCo壱", "やよい軒", "大戸屋", "ガスト", "サイゼリヤ", "バーミヤン", "その他"];
+HK.DEFAULT_COFFEE_CHIPS = ["スタバ", "マクドナルド", "ドトール", "タリーズ", "会社のカフェ", "その他"]; // v4で未使用(互換のため残置)
+HK.DEFAULT_ACTIVITY_CHIPS = ["歩く", "階段", "筋トレ", "ランニング", "ストレッチ", "スポーツ"];
+HK.TONES = { colleague: "同僚", cheer: "チア", analyst: "アナリスト" };
 
 HK.MEAL_TIERS = { 1: "good", 2: "normal", 3: "junk" };
 
@@ -70,7 +76,7 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 4,
+  version: 5,
   events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label, tier(MEALのみ1-3)}
   nextEventId: 1,
   sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
@@ -80,9 +86,13 @@ HK.emptyState = () => ({
   settings: {
     apiKey: "",
     model: "",
+    mealKinds: HK.DEFAULT_MEAL_KINDS.slice(),
     mealChips: HK.DEFAULT_MEAL_CHIPS.slice(),
     coffeeChips: HK.DEFAULT_COFFEE_CHIPS.slice(),
     activityChips: HK.DEFAULT_ACTIVITY_CHIPS.slice(),
+    displayName: "",
+    profile: "",          // 空ならHK.DEFAULT_PROFILEを使用
+    tone: "colleague",    // colleague | cheer | analyst
     lastExperiment: null
   },
   pendingBed: null,
@@ -110,7 +120,12 @@ HK.migrate = (s) => {
     delete s.mood;
   }
   delete s.settings.healthChips;
-  s.version = 4;
+  const eq = (a, b) => Array.isArray(a) && a.length === b.length && a.every((v, i) => v === b[i]);
+  if (eq(s.settings.mealChips, ["マック", "日高屋", "サイゼ", "松屋", "スシロー", "大戸屋", "自炊", "その他"]))
+    s.settings.mealChips = HK.DEFAULT_MEAL_CHIPS.slice();
+  if (eq(s.settings.activityChips, ["階段", "散歩"]))
+    s.settings.activityChips = HK.DEFAULT_ACTIVITY_CHIPS.slice();
+  s.version = 5;
   return s;
 };
 
@@ -320,7 +335,7 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
       coffee_after_21: HK.countLateCoffee(allCoffee),
       coffee_place_counts: countBy([].concat(...days.map((d) => d.coffeePlaces))),
       meal_tier_counts: { good: tierCount(1), normal: tierCount(2), junk: tierCount(3) },
-      meal_place_counts: countBy(allMeals.map((m) => m.place)),
+      meal_label_counts: countBy(allMeals.map((m) => m.place)),
       activity_counts: countBy([].concat(...days.map((d) => d.activityLabels))),
       mood_avg: avgOrNull(days.map((d) => d.mood), true),
       focus_avg: avgOrNull(days.map((d) => d.focus), true),
@@ -367,8 +382,9 @@ HK.buildWeeklySeries = (state, endMs, nWeeks) => {
 
 // ---------------- Gemini プロンプト(設計確定事項。変更注意) ----------------
 
-HK.USER_PROFILE = [
-  "- 43歳男性、コンサル出身のPlaying Manager。平日休日問わず長時間労働。",
+// デフォルトプロフィール(匿名化済み。設定の「AIに伝える自分のこと」が空のとき使用)
+HK.DEFAULT_PROFILE = [
+  "- 40代男性、コンサル出身のPlaying Manager。平日休日問わず長時間労働。",
   "- 健診結果は良好。酒・タバコなし。体型は普通。",
   "- 食事は夜1食か夕方+夜の2食。朝昼は空腹にならず、食べると眠くなるため食べない。",
   "  これは本人の選択であり尊重する。矯正提案は禁止。",
@@ -385,7 +401,19 @@ HK.USER_PROFILE = [
   "- 価値観: 子供2人との時間を最優先したい。生活改善の目的は本人と家族の未来の幸せの最大化。"
 ].join("\n");
 
-HK.SYSTEM_PROMPT = [
+HK.TONE_LINES = {
+  colleague: "- トーンは有能な同僚。敬意はあるが馴れ馴れしくない。絵文字は使わない。",
+  cheer: "- トーンは明るい応援団。データ上の頑張りや改善を具体的な数字とともに言葉にして認める。絵文字を1〜3個使ってよい。ただし根拠のない持ち上げや空虚な励ましはしない。",
+  analyst: "- トーンはデータアナリスト。数字と相関を簡潔に述べる。感情表現・絵文字は使わない。"
+};
+
+/** 設定(プロフィール・トーン・名前)を反映したシステムプロンプトを構築 */
+HK.buildSystemPrompt = (settings) => {
+  const st = settings || {};
+  const profile = (st.profile && st.profile.trim()) ? st.profile.trim() : HK.DEFAULT_PROFILE;
+  const tone = HK.TONE_LINES[st.tone] || HK.TONE_LINES.colleague;
+  const name = st.displayName && st.displayName.trim() ? "- ユーザーの呼び名: " + st.displayName.trim() + "さん" : "";
+  return [
   "あなたは行動科学に基づく健康コーチです。ユーザーの1週間の健康データを分析し、",
   "週次レポートをJSONで返します。",
   "",
@@ -395,11 +423,12 @@ HK.SYSTEM_PROMPT = [
   "- 1日1〜2食の食事スタイルは本人の合理的な選択として尊重し、食事回数への言及・矯正提案をしない。",
   "- データにないことを推測で断定しない。欠損日は欠損として扱い、記録しなかったことを責めない。",
   "- 睡眠改善を最優先。カフェイン時刻・就寝時刻と、気分/はかどり/イラッと度の相関に注目する。",
-  "- トーンは有能な同僚。敬意はあるが馴れ馴れしくない。絵文字は使わない。",
+  tone,
   "- 全フィールド合計で400字以内。",
   "",
   "# ユーザープロファイル",
-  HK.USER_PROFILE,
+  profile,
+  name,
   "",
   "# 出力形式",
   "必ず次のJSONスキーマに従い、JSON以外を一切出力しないこと:",
@@ -407,11 +436,15 @@ HK.SYSTEM_PROMPT = [
   '"patterns":["データから見えるパターン(最大3つ。なければ空配列)"],',
   '"experiment":{"title":"実験の短い名前","action":"具体的に何をするか(1文)","why":"データ上の根拠(1文)"},',
   '"last_week_experiment_review":"前週の実験の結果検証(前週の実験がnullなら null)",',
-  '"one_liner":"家族との時間や本人の価値観に紐づけた前向きな一言(1文)"}'
-].join("\n");
+  '"one_liner":"本人の価値観に紐づけた前向きな一言(1文)"}'
+  ].filter(Boolean).join("\n");
+};
 
-HK.buildGeminiRequestBody = (payload) => ({
-  systemInstruction: { parts: [{ text: HK.SYSTEM_PROMPT }] },
+// 互換用(テスト・旧コード): デフォルト設定でのプロンプト
+HK.SYSTEM_PROMPT = HK.buildSystemPrompt(null);
+
+HK.buildGeminiRequestBody = (payload, settings) => ({
+  systemInstruction: { parts: [{ text: HK.buildSystemPrompt(settings) }] },
   contents: [{
     role: "user",
     parts: [{ text: "以下が今週のデータです。週次レポートを生成してください。\n\n" + JSON.stringify(payload) }]

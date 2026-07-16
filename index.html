@@ -93,6 +93,13 @@ main{padding:0 16px}
 .oneliner{margin-top:12px; font-size:14px; color:var(--moon)}
 .review{margin-top:10px; font-size:13px; color:var(--muted)}
 .gen-note{font-size:13px; color:var(--muted); margin-top:8px}
+.statrow{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px}
+.statrow span{background:var(--surface2); border:1px solid var(--line); border-radius:999px;
+  padding:5px 12px; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums}
+.statrow small{color:var(--muted); font-weight:500}
+details.rephist{border-bottom:1px solid var(--line); padding:10px 0; font-size:14px}
+details.rephist summary{cursor:pointer; color:var(--muted)}
+details.rephist summary b{color:var(--text)}
 details.err{margin-top:8px; font-size:12px; color:var(--bad)}
 details.err pre{white-space:pre-wrap; word-break:break-all; background:var(--surface2); padding:8px; border-radius:8px; color:var(--muted)}
 
@@ -201,6 +208,16 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <input type="text" id="inModel" placeholder="gemini-3.5-flash"></div>
       <button class="btn primary" id="btnSaveKey">保存して接続を確認</button>
       <p class="note" id="keyStatus"></p>
+    </div>
+    <div class="card">
+      <h2>AIレポートのパーソナライズ</h2>
+      <div class="field"><label for="inName">名前(呼び名)</label>
+        <input type="text" id="inName" maxlength="20" placeholder="例: ショウタ"></div>
+      <div class="field"><label for="inProfile">AIに伝える自分のこと(空欄ならデフォルト)</label>
+        <textarea id="inProfile" rows="4" maxlength="600" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%" placeholder="例: 40代、営業職。子供と過ごす時間を増やしたい。朝は食べない主義。"></textarea></div>
+      <div class="field"><label>レポートのトーン</label>
+        <div class="seg" id="toneSeg"></div></div>
+      <button class="btn" id="btnSaveProfile">保存</button>
     </div>
     <div class="card">
       <h2>ボタンの編集</h2>
@@ -466,18 +483,28 @@ document.addEventListener("click", (e) => {
     toast(`${b.dataset.label} を記録`, () => { HK.deleteEventById(state, id); save(); renderTodayLog(); renderDayEditor(); });
   }
 });
-function showPlaceRow(mealId){
+function showPlaceRow(mealId, showStores){
   const row = $("placeRow");
-  row.innerHTML = `<div class="q">どこで?(任意)</div><div class="chips g3">` +
-    state.settings.mealChips.map(c =>
+  const chips = showStores ? state.settings.mealChips : state.settings.mealKinds;
+  const toggle = showStores
+    ? `<button type="button" data-placeview="${mealId}:kinds" style="color:var(--moon)">← 種類から選ぶ</button>`
+    : `<button type="button" data-placeview="${mealId}:stores" style="color:var(--moon)">🏪 お店から選ぶ</button>`;
+  row.innerHTML = `<div class="q">なにを食べました?(任意)</div><div class="chips g3">` +
+    chips.map(c =>
       `<button type="button" data-place="${mealId}:${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("") +
+    toggle +
     `<button type="button" data-place="${mealId}:" style="color:var(--muted)">スキップ</button></div>`;
   row.classList.remove("hidden");
   clearTimeout(placeTimer);
-  placeTimer = setTimeout(hidePlaceRow, 12000);
+  placeTimer = setTimeout(hidePlaceRow, 20000);
 }
 function hidePlaceRow(){ $("placeRow").classList.add("hidden"); clearTimeout(placeTimer); }
 document.addEventListener("click", (e) => {
+  const pv = e.target.closest("button[data-placeview]");
+  if(pv){
+    const [id, view] = pv.dataset.placeview.split(":");
+    showPlaceRow(+id, view === "stores"); return;
+  }
   const p = e.target.closest("button[data-place]");
   if(!p) return;
   const i = p.dataset.place.indexOf(":");
@@ -536,20 +563,48 @@ $("btnEvSave").onclick = () => {
 /* ================= 週次レポート ================= */
 let reportErr = null;
 function latestReport(){ return state.reports.length ? state.reports[state.reports.length-1] : null; }
+function weekRangeLabel(weekStartIso){
+  const s = new Date(weekStartIso + "T12:00:00");
+  const e = new Date(s.getTime() + 6*86400000);
+  return `${s.getMonth()+1}/${s.getDate()}〜${e.getMonth()+1}/${e.getDate()}`;
+}
+/** アプリ側で計算した確定数値のダッシュボード(AIの語りと役割分担) */
+function statsRowHtml(){
+  const days = HK.buildDaySummaries(state, Date.now(), 7);
+  const prev = HK.buildDaySummaries(state, Date.now() - 7*86400000, 7);
+  const avg = (arr) => { const v = arr.filter(x => x != null); return v.length ? v.reduce((a,b)=>a+b)/v.length : null; };
+  const sNow = avg(days.map(d=>d.sleepDurationMin)), sPrev = avg(prev.map(d=>d.sleepDurationMin));
+  const q = avg(days.map(d=>d.sleepQuality));
+  const late = HK.countLateCoffee([].concat(...days.map(d=>d.coffeeTimesHHmm)));
+  const meals = [].concat(...days.map(d=>d.meals));
+  const tc = (t) => meals.filter(m=>m.tier===t).length;
+  const chips = [];
+  if(sNow != null){
+    const diff = sPrev != null ? Math.round(sNow - sPrev) : null;
+    chips.push(`😴 ${Math.floor(sNow/60)}h${Math.round(sNow%60)}m${diff!=null?` <small>(${diff>=0?"+":""}${diff}分)</small>`:""}`);
+  }
+  if(q != null) chips.push(`💤 質${q.toFixed(1)}`);
+  chips.push(`☕ 夜${late}回`);
+  if(meals.length) chips.push(`🟢${tc(1)} 🟡${tc(2)} 🔴${tc(3)}`);
+  return chips.length ? `<div class="statrow">${chips.map(c=>`<span>${c}</span>`).join("")}</div>` : "";
+}
+function reportBodyHtml(o){
+  let h = `<div class="summary">${esc(o.sleep_summary||"")}</div>`;
+  if(o.patterns && o.patterns.length) h += `<ul>${o.patterns.map(p=>`<li>${esc(p)}</li>`).join("")}</ul>`;
+  if(o.experiment) h += `<div class="exp"><div class="t">来週の実験: ${esc(o.experiment.title||"")}</div>
+    <div class="a">${esc(o.experiment.action||"")}</div><div class="w">${esc(o.experiment.why||"")}</div></div>`;
+  if(o.last_week_experiment_review) h += `<div class="review">前週の実験: ${esc(o.last_week_experiment_review)}</div>`;
+  if(o.one_liner) h += `<div class="oneliner">${esc(o.one_liner)}</div>`;
+  return h;
+}
 function renderReport(){
   const el = $("reportCard");
   const r = latestReport();
   const thisWeek = HK.weekStartIso(Date.now());
-  let html = `<h2>AI週次レポート</h2>`;
+  let html = `<h2>AI週次レポート</h2>` + statsRowHtml();
   if(r){
-    const o = r.report;
-    html += `<div class="summary">${esc(o.sleep_summary||"")}</div>`;
-    if(o.patterns && o.patterns.length) html += `<ul>${o.patterns.map(p=>`<li>${esc(p)}</li>`).join("")}</ul>`;
-    if(o.experiment) html += `<div class="exp"><div class="t">来週の実験: ${esc(o.experiment.title||"")}</div>
-      <div class="a">${esc(o.experiment.action||"")}</div><div class="w">${esc(o.experiment.why||"")}</div></div>`;
-    if(o.last_week_experiment_review) html += `<div class="review">前週の実験: ${esc(o.last_week_experiment_review)}</div>`;
-    if(o.one_liner) html += `<div class="oneliner">${esc(o.one_liner)}</div>`;
-    html += `<p class="gen-note">${r.weekStart} 週 / ${new Date(r.createdAt).toLocaleDateString("ja-JP")} 生成</p>`;
+    html += reportBodyHtml(r.report);
+    html += `<p class="gen-note">${weekRangeLabel(r.weekStart)} / ${new Date(r.createdAt).toLocaleDateString("ja-JP")} 生成</p>`;
   }
   if(!state.settings.apiKey){
     html += `<p class="gen-note">設定画面で Gemini APIキーを登録すると、毎週の振り返りと「来週の小さな実験」を提案します。</p>`;
@@ -577,7 +632,7 @@ async function generateReport(){
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       { method:"POST",
         headers:{ "Content-Type":"application/json", "x-goog-api-key":state.settings.apiKey },
-        body: JSON.stringify(HK.buildGeminiRequestBody(payload)) });
+        body: JSON.stringify(HK.buildGeminiRequestBody(payload, state.settings)) });
     const bodyText = await resp.text();
     if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${bodyText.slice(0,600)}`);
     const parsed = HK.parseGeminiResponse(JSON.parse(bodyText));
@@ -744,17 +799,21 @@ function renderHistory(){
 
   $("reportHistory").innerHTML = state.reports.length
     ? state.reports.slice().reverse().map(r =>
-        `<div class="exp" style="margin-bottom:8px"><div class="t">${r.weekStart} 週</div>
-         <div class="a">${esc(r.report.sleep_summary||"")}</div>
-         <div class="w">実験: ${esc(r.report.experiment ? r.report.experiment.title : "-")}</div></div>`).join("")
+        `<details class="rephist"><summary><b>${weekRangeLabel(r.weekStart)}</b> ${esc(r.report.sleep_summary||"").slice(0,40)}…</summary>
+         <div style="margin-top:10px">${reportBodyHtml(r.report)}</div></details>`).join("")
     : `<p class="note">まだレポートはありません。</p>`;
 }
 
 /* ================= 設定 ================= */
-const CHIP_GROUPS = [["mealChips","🍽 食事の店"],["activityChips","🏃 運動の種類"]];
+const CHIP_GROUPS = [["mealKinds","🍽 食事の種類"],["mealChips","🏪 食事の店"],["activityChips","🏃 運動の種類"]];
+const TONE_DEFS = [["colleague","同僚"],["cheer","チア"],["analyst","アナリスト"]];
 function renderSettings(){
   $("inKey").value = state.settings.apiKey || "";
   $("inModel").value = state.settings.model || "";
+  $("inName").value = state.settings.displayName || "";
+  $("inProfile").value = state.settings.profile || "";
+  $("toneSeg").innerHTML = TONE_DEFS.map(([k,lab]) =>
+    `<button type="button" class="${(state.settings.tone||"colleague")===k?"sel":""}" data-tone="${k}">${lab}</button>`).join("");
   $("chipEditors").innerHTML = CHIP_GROUPS.map(([key,title]) => `
     <div class="field"><label>${title}</label>
       <div class="chiplist">${state.settings[key].map((c,i) =>
@@ -764,6 +823,8 @@ function renderSettings(){
     </div>`).join("");
 }
 document.addEventListener("click", (e) => {
+  const tn = e.target.closest("button[data-tone]");
+  if(tn){ state.settings.tone = tn.dataset.tone; save(); renderSettings(); return; }
   const del = e.target.closest("button[data-del]");
   if(del){
     const [key, i] = del.dataset.del.split(":");
@@ -797,6 +858,11 @@ $("btnSaveKey").onclick = async () => {
       : `✕ 接続できませんでした(${r.status})。時間をおいて再試行してください。`;
   }catch(e){ st.textContent = "✕ ネットワークに接続できませんでした。"; }
   renderReport();
+};
+$("btnSaveProfile").onclick = () => {
+  state.settings.displayName = $("inName").value.trim();
+  state.settings.profile = $("inProfile").value.trim();
+  save(); toast("保存しました。次のレポートから反映されます");
 };
 $("btnExport").onclick = () => {
   const blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
