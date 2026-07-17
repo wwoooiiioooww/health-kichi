@@ -115,6 +115,11 @@ details.err pre{white-space:pre-wrap; word-break:break-all; background:var(--sur
 /* 設定 */
 .field{margin:14px 0}
 .field label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+.timepick{display:flex; gap:8px; align-items:center}
+.timepick select{flex:1; font-family:inherit; font-size:20px; font-weight:700; text-align:center;
+  color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px;
+  padding:10px 4px; font-variant-numeric:tabular-nums; appearance:none; -webkit-appearance:none}
+.timepick .colon{font-size:20px; font-weight:700; color:var(--muted)}
 .row2{display:flex; gap:8px}
 .btn{padding:11px 16px; border-radius:10px; background:var(--surface2); border:1px solid var(--line); font-weight:600; font-size:14px}
 .btn.primary{background:var(--moon); color:#101828}
@@ -247,8 +252,10 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 
 <dialog id="dlgSleep">
   <h3 style="font-size:16px; margin-bottom:14px" id="dlgSleepTitle">睡眠を記録</h3>
-  <div class="field"><label for="inBed">寝た時刻</label><input type="time" id="inBed"></div>
-  <div class="field"><label for="inWake">起きた時刻</label><input type="time" id="inWake"></div>
+  <div class="field"><label>寝た時刻</label>
+    <div class="timepick"><select id="inBedH"></select><span class="colon">:</span><select id="inBedM"></select></div></div>
+  <div class="field"><label>起きた時刻</label>
+    <div class="timepick"><select id="inWakeH"></select><span class="colon">:</span><select id="inWakeM"></select></div></div>
   <p class="note">寝た時刻が起きた時刻より遅い場合は前日の夜として扱います。</p>
   <div class="row2" style="margin-top:14px">
     <button class="btn" id="btnSleepCancel">やめる</button>
@@ -260,8 +267,8 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <h3 style="font-size:16px; margin-bottom:14px" id="dlgEvTitle">記録の修正</h3>
   <div class="subh">だいたいの時間をタップ</div>
   <div class="chips g3" id="slotBtns"></div>
-  <div class="field" style="margin-top:12px"><label for="inEvTime">正確な時刻</label>
-    <input type="time" id="inEvTime"></div>
+  <div class="field" style="margin-top:12px"><label>正確な時刻</label>
+    <div class="timepick"><select id="inEvH"></select><span class="colon">:</span><select id="inEvM"></select></div></div>
   <div class="row2" style="margin-top:14px">
     <button class="btn danger" id="btnEvDelete">削除</button>
     <button class="btn" id="btnEvCancel">やめる</button>
@@ -286,6 +293,23 @@ function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
 const $ = (id) => document.getElementById(id);
 const lToday = () => HK.logicalDateIso(Date.now());
 function esc(s){ const d=document.createElement("div"); d.textContent=s==null?"":s; return d.innerHTML; }
+
+/* ================= 24時間ピッカー(共通部品) =================
+ * ネイティブ<input type="time">は端末のAM/PM設定次第で0時が選びにくい(12時に見える)ため、
+ * 24時間表記のselect2本に置き換えて曖昧さをなくす。 */
+let pickersInit = false;
+function initTimePickers(){
+  if(pickersInit) return; pickersInit = true;
+  const hOpts = Array.from({length:24}, (_,i) => `<option value="${i}">${i<10?"0"+i:i}</option>`).join("");
+  const mOpts = Array.from({length:60}, (_,i) => `<option value="${i}">${i<10?"0"+i:i}</option>`).join("");
+  [["inBedH",hOpts],["inBedM",mOpts],["inWakeH",hOpts],["inWakeM",mOpts],["inEvH",hOpts],["inEvM",mOpts]]
+    .forEach(([id,opts]) => { $(id).innerHTML = opts; });
+}
+function setPicker(hId, mId, minuteOfDay){
+  const h = Math.floor(minuteOfDay/60) % 24, m = minuteOfDay % 60;
+  $(hId).value = h; $(mId).value = m;
+}
+function getPicker(hId, mId){ return (+$(hId).value) * 60 + (+$(mId).value); }
 
 /* ================= トースト ================= */
 let toastTimer = null, undoFn = null;
@@ -356,16 +380,16 @@ function renderSleep(){
 }
 let dlgTarget = null;
 function openSleepDialog(dateIso, existing){
+  initTimePickers();
   dlgTarget = dateIso;
   $("dlgSleepTitle").textContent = (existing ? "睡眠を修正" : "睡眠を記録") + `(${dateIso.slice(5).replace("-","/")}起床)`;
-  $("inBed").value  = existing ? HK.hhmm(existing.bed)  : "00:30";
-  $("inWake").value = existing ? HK.hhmm(existing.wake) : "06:30";
+  setPicker("inBedH","inBedM", existing ? HK.parseHHmm(HK.hhmm(existing.bed)) : 30);
+  setPicker("inWakeH","inWakeM", existing ? HK.parseHHmm(HK.hhmm(existing.wake)) : 6*60+30);
   $("dlgSleep").showModal();
 }
 $("btnSleepCancel").onclick = () => $("dlgSleep").close();
 $("btnSleepSave").onclick = () => {
-  const b = HK.parseHHmm($("inBed").value), w = HK.parseHHmm($("inWake").value);
-  if(b == null || w == null){ toast("時刻を入力してください"); return; }
+  const b = getPicker("inBedH","inBedM"), w = getPicker("inWakeH","inWakeM");
   const base = new Date(dlgTarget + "T00:00:00").getTime();
   let bedMs = base + b*60000;
   const wakeMs = base + w*60000;
@@ -532,18 +556,15 @@ function renderTodayLog(){
 let evTarget = null;
 function openEventDialog(id){
   const e = state.events.find(x => x.id === id); if(!e) return;
+  initTimePickers();
   evTarget = e;
   const name = e.type === "NO_MEAL" ? "食べてない" : (e.label || (e.type === "MEAL" ? "食事" : ""));
   $("dlgEvTitle").textContent = `${TYPE_ICON[e.type]||""} ${name} の修正`;
-  $("inEvTime").value = HK.hhmm(e.t);
+  setPicker("inEvH","inEvM", HK.parseHHmm(HK.hhmm(e.t)));
   const slots = [["朝6時",360],["9時",540],["12時",720],["15時",900],["18時",1080],["21時",1260],["深夜0時",0],["深夜2時",120]];
   $("slotBtns").innerHTML = slots.map(([lab,m]) =>
     `<button type="button" data-slot="${m}">${lab}</button>`).join("");
-  $("slotBtns").querySelectorAll("button").forEach(b => b.onclick = () => {
-    const m = +b.dataset.slot;
-    const p = (n)=>(n<10?"0"+n:""+n);
-    $("inEvTime").value = p(Math.floor(m/60)) + ":" + p(m%60);
-  });
+  $("slotBtns").querySelectorAll("button").forEach(b => b.onclick = () => setPicker("inEvH","inEvM", +b.dataset.slot));
   $("dlgEvent").showModal();
 }
 $("btnEvCancel").onclick = () => $("dlgEvent").close();
@@ -552,8 +573,8 @@ $("btnEvDelete").onclick = () => {
   $("dlgEvent").close(); toast("削除しました");
 };
 $("btnEvSave").onclick = () => {
-  const m = HK.parseHHmm($("inEvTime").value);
-  if(m == null || !evTarget){ $("dlgEvent").close(); return; }
+  const m = getPicker("inEvH","inEvM");
+  if(!evTarget){ $("dlgEvent").close(); return; }
   // 論理日を保ったまま時刻を変更(0-3時台は同じ論理日の深夜として翌実日になる)
   const ld = HK.logicalDateIso(evTarget.t);
   HK.updateEventTime(state, evTarget.id, HK.msFromLogicalDate(ld, m)); save();
