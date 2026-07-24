@@ -392,6 +392,48 @@ test("migrate: conditions/personalContext を補完(往復非破壊)", () => {
   assert(old.personalContext && Array.isArray(old.personalContext.facts));
 });
 
+// ================= Phase4b: 健診Vision解析 =================
+test("buildHealthCheckRequestBody: inlineData/JSON/上限4096", () => {
+  const body = HK.buildHealthCheckRequestBody("QUJD", "image/png");
+  const parts = body.contents[0].parts;
+  assertEq(parts[0].inlineData.mimeType, "image/png");
+  assertEq(parts[0].inlineData.data, "QUJD");
+  assert(parts[1].text.length > 0, "指示テキストあり");
+  assertEq(body.generationConfig.responseMimeType, "application/json");
+  assert(body.generationConfig.maxOutputTokens >= 4096, "尻切れ防止で4096以上");
+  assert(body.systemInstruction.parts[0].text.includes("健康診断"), "systemプロンプト");
+});
+test("buildHealthCheckRequestBody: mime未指定はjpegに解決", () => {
+  const body = HK.buildHealthCheckRequestBody("QUJD");
+  assertEq(body.contents[0].parts[0].inlineData.mimeType, "image/jpeg");
+});
+test("parseHealthCheckResponse: 正常(コードフェンス/思考パーツ除去)", () => {
+  const resp = { candidates: [{ content: { parts: [
+    { text: "考え中", thought: true },
+    { text: '```json\n{"date":"2026-07-01","summary":"血圧やや高め。LDLも高め。","values":[{"name":"BP","value":"140/90","flag":"H"}],"facts":["血圧やや高め","LDL高め"]}\n```' }
+  ] } }] };
+  const p = HK.parseHealthCheckResponse(resp);
+  assert(!p.error, "エラーでない");
+  assertEq(p.result.date, "2026-07-01");
+  assertEq(p.result.values.length, 1);
+  assertEq(p.result.facts, ["血圧やや高め", "LDL高め"]);
+});
+test("parseHealthCheckResponse: summary欠落/空応答はerror", () => {
+  assert(HK.parseHealthCheckResponse({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }).error);
+  assert(HK.parseHealthCheckResponse({ candidates: [{ content: { parts: [] }, finishReason: "SAFETY" }] }).error);
+  assert(HK.parseHealthCheckResponse({}).error, "candidates無しもerror");
+});
+test("addHealthCheck: 要約とimageId(参照のみ)を保存", () => {
+  const s = HK.emptyState();
+  const id = HK.addHealthCheck(s, { dateIso: "2026-07-01", summary: "所見あり", values: [{ name: "BP", value: "140/90" }], imageId: "hc-xyz" });
+  const h = s.personalContext.healthChecks.find((x) => x.id === id);
+  assertEq(h.imageId, "hc-xyz");
+  assertEq(h.summary, "所見あり");
+  // buildContextPayloadには要約のみ載る(画像ID/生値は送らない)
+  const ctx = HK.buildContextPayload(s, Date.now());
+  assertEq(ctx.latest_health_check, { date: "2026-07-01", summary: "所見あり" });
+});
+
 // ================= 結果 =================
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

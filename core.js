@@ -677,4 +677,59 @@ HK.parseGeminiResponse = (respJson) => {
   }
 };
 
+// ---------------- 健康診断の読み取り(Gemini Vision) ----------------
+
+HK.buildHealthCheckPrompt = () => [
+  "あなたは健康診断結果を読み取るアシスタントです。画像から要点だけを日本語で抽出し、JSONで返します。",
+  "",
+  "# ルール",
+  "- 画像から読み取れる事実のみを出力する。読めない/不確かな値は出さない(推測で埋めない)。",
+  "- 医療診断や治療の指示はしない。所見の要約に留める。",
+  "- 氏名・住所・ID等の個人特定情報は summary/facts に含めない。",
+  "- 基準値から外れている項目を優先して要約する。",
+  "",
+  "# 出力形式(このJSON以外は一切出力しない)",
+  '{"date":"受診日 YYYY-MM-DD(読めなければ null)",',
+  '"summary":"主要所見の要約(2〜4文)",',
+  '"values":[{"name":"項目名","value":"値(単位込み)","flag":"H|L|-(基準に対する高低。不明は-)"}],',
+  '"facts":["Personal Contextに残す短い事実(例: HbA1c 5.8 でやや高め)。最大4件、なければ空配列"]}'
+].join("\n");
+
+HK.buildHealthCheckRequestBody = (base64, mimeType) => ({
+  systemInstruction: { parts: [{ text: HK.buildHealthCheckPrompt() }] },
+  contents: [{
+    role: "user",
+    parts: [
+      { inlineData: { mimeType: mimeType || "image/jpeg", data: base64 } },
+      { text: "この健康診断結果の画像から要点を抽出してください。" }
+    ]
+  }],
+  // 思考型モデルは思考にもトークンを使うため上限を大きめに確保する
+  generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 4096 }
+});
+
+/** 健診解析レスポンスを解析。思考パーツ・コードフェンス除去後にJSON化。失敗時は{error,detail} */
+HK.parseHealthCheckResponse = (respJson) => {
+  try {
+    const cand = respJson.candidates && respJson.candidates[0];
+    if (!cand) throw new Error("no candidates: " + JSON.stringify(respJson).slice(0, 300));
+    const parts = (cand.content && cand.content.parts) || [];
+    const text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("");
+    if (!text) throw new Error("empty text (finishReason=" + (cand.finishReason || "?") + ")");
+    const clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    const o = JSON.parse(clean);
+    if (typeof o.summary !== "string" || !o.summary.trim()) throw new Error("no summary in JSON");
+    return {
+      result: {
+        date: o.date || null,
+        summary: o.summary.trim(),
+        values: Array.isArray(o.values) ? o.values : [],
+        facts: Array.isArray(o.facts) ? o.facts.filter((f) => typeof f === "string" && f.trim()) : []
+      }
+    };
+  } catch (e) {
+    return { error: "健診結果の解析に失敗しました。もう一度試せます。", detail: String(e && e.message || e) };
+  }
+};
+
 if (typeof module !== "undefined" && module.exports) module.exports = HK;

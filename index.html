@@ -187,6 +187,15 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .pcrow input{flex:1}
 .pcbadge{font-size:15px}
 .pcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
+.hcrow{display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid var(--line)}
+.hcrow:last-of-type{border-bottom:none}
+.hcrow .body{flex:1; min-width:0}
+.hcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
+.hcprev{margin:8px 0}
+.hcprev img{max-width:100%; max-height:200px; border-radius:10px; border:1px solid var(--line)}
+.hcconsent{color:var(--amber); font-size:13px; margin:8px 0}
+.hccheck{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-top:6px}
+.hccheck input{width:auto}
 
 /* 計画: 週次目標 */
 .goalrow{margin:12px 0}
@@ -307,13 +316,21 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <p class="note">AIレポートに背景として渡されます。🤖はAIが健診などから抽出した項目です。すべて端末内に保存されます。</p>
     </div>
     <div class="card">
+      <h2>健康診断の読み込み(AI解析)</h2>
+      <div id="hcList"></div>
+      <input type="file" id="hcFile" accept="image/*" class="hidden">
+      <button class="btn" id="btnHcPick" style="margin-top:6px">📷 健診結果の画像を選ぶ</button>
+      <div id="hcStage"></div>
+      <p class="note">画像は<b>端末内(IndexedDB)にのみ</b>保存され、エクスポートJSONには含まれません。「解析」を押したときだけ画像がGoogle(Gemini)に送信されます。要APIキー。</p>
+    </div>
+    <div class="card">
       <h2>データ</h2>
       <div class="row2">
         <button class="btn" id="btnExport">エクスポート</button>
         <button class="btn" id="btnImport">インポート</button>
         <input type="file" id="fileImport" accept=".json" class="hidden">
       </div>
-      <p class="note">すべてのデータはこの端末のブラウザ内にのみ保存されます。機種変更前にエクスポートしてください。</p>
+      <p class="note">すべてのデータはこの端末のブラウザ内にのみ保存されます。機種変更前にエクスポートしてください。<b>健診画像(IndexedDB)はエクスポートに含まれません</b>ので、必要な画像は別途保存してください。</p>
       <button class="btn danger" id="btnWipe" style="margin-top:10px">すべてのデータを削除</button>
     </div>
   </section>
@@ -1119,6 +1136,156 @@ document.addEventListener("click", (e) => {
   }
 });
 
+/* ================= 健診画像: IndexedDB(端末内) ================= */
+const IDB_NAME = "hk-images", IDB_STORE = "img";
+function idbOpen(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => { if(!r.result.objectStoreNames.contains(IDB_STORE)) r.result.createObjectStore(IDB_STORE); };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbPut(id, blob){
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(blob, id);
+    tx.oncomplete = () => res(id); tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbGet(id){
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const rq = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(id);
+    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbDel(id){
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).delete(id);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbClear(){
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+function fileToBase64(file){
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1]);
+    r.onerror = () => rej(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+/* ================= 健診の読み込み(AI解析) ================= */
+let hcPendingFile = null, hcResult = null, hcPreviewUrl = null;
+function renderHealthChecks(){
+  const hcs = ((state.personalContext && state.personalContext.healthChecks) || []).slice().sort((a,b) => b.createdAt - a.createdAt);
+  $("hcList").innerHTML = hcs.map(h =>
+    `<div class="hcrow"><div class="body"><b>${esc(h.dateIso)}</b>
+      <div class="note">${esc(h.summary).slice(0,90)}${h.summary.length>90?"…":""}</div></div>
+      <button type="button" class="rm" data-hcdel="${h.id}" aria-label="削除">×</button></div>`).join("");
+}
+function clearHcStage(){
+  if(hcPreviewUrl){ URL.revokeObjectURL(hcPreviewUrl); hcPreviewUrl = null; }
+  hcPendingFile = null; hcResult = null; $("hcStage").innerHTML = "";
+}
+$("btnHcPick").onclick = () => $("hcFile").click();
+$("hcFile").onchange = (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if(!f) return;
+  clearHcStage();
+  hcPendingFile = f; hcPreviewUrl = URL.createObjectURL(f);
+  renderHcStage("consent");
+};
+function renderHcStage(mode, extra){
+  const st = $("hcStage");
+  if(mode === "consent"){
+    st.innerHTML = `<div class="hcprev"><img src="${hcPreviewUrl}" alt="健診画像プレビュー"></div>
+      <p class="hcconsent">⚠️ 「解析」を押すと、この画像がGoogle(Gemini)に送信されます。よろしければ続けてください。</p>
+      <div class="row2"><button class="btn" id="btnHcClear">やめる</button>
+        <button class="btn primary" id="btnHcAnalyze" style="flex:1">🔍 Geminiで解析</button></div>`;
+    $("btnHcClear").onclick = clearHcStage;
+    $("btnHcAnalyze").onclick = analyzeHealthCheck;
+  } else if(mode === "loading"){
+    st.innerHTML = `<p class="note"><span class="spin">◐</span> 解析中…（画像を送信しています）</p>`;
+  } else if(mode === "review"){
+    const r = hcResult;
+    const vals = (r.values || []).filter(v => v && v.name).map(v =>
+      `${esc(v.name)} ${esc(v.value||"")}${v.flag && v.flag!=="-" ? `(${esc(v.flag)})` : ""}`).join(" / ");
+    st.innerHTML = `<div class="field"><label>受診日</label>
+        <input id="hcDate" value="${esc(r.date || lToday())}" placeholder="YYYY-MM-DD"></div>
+      <div class="field"><label>要約(修正できます)</label>
+        <textarea id="hcSummary" rows="4" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%">${esc(r.summary)}</textarea></div>
+      ${vals ? `<p class="note">読み取り値: ${vals}</p>` : ""}
+      <label class="hccheck"><input type="checkbox" id="hcAddFacts" checked> 要点をPersonal Contextにも追加(🤖)</label>
+      <div class="row2" style="margin-top:10px"><button class="btn" id="btnHcCancel">やめる</button>
+        <button class="btn primary" id="btnHcSave" style="flex:1">保存</button></div>`;
+    $("btnHcCancel").onclick = clearHcStage;
+    $("btnHcSave").onclick = saveHealthCheck;
+  } else if(mode === "error"){
+    st.innerHTML = `<details class="err" open><summary>解析に失敗しました(タップで詳細)</summary><pre>${esc(extra||"")}</pre></details>
+      <div class="row2" style="margin-top:8px"><button class="btn" id="btnHcClear2">とじる</button>
+        <button class="btn primary" id="btnHcRetry" style="flex:1">もう一度解析</button></div>`;
+    $("btnHcClear2").onclick = clearHcStage;
+    $("btnHcRetry").onclick = analyzeHealthCheck;
+  }
+}
+async function analyzeHealthCheck(){
+  if(!state.settings.apiKey){ toast("設定でGemini APIキーを登録してください"); return; }
+  if(!hcPendingFile){ return; }
+  renderHcStage("loading");
+  try{
+    const base64 = await fileToBase64(hcPendingFile);
+    const model = HK.resolveModel(state.settings);
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { method:"POST",
+        headers:{ "Content-Type":"application/json", "x-goog-api-key":state.settings.apiKey },
+        body: JSON.stringify(HK.buildHealthCheckRequestBody(base64, hcPendingFile.type)) });
+    const bodyText = await resp.text();
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${bodyText.slice(0,600)}`);
+    const parsed = HK.parseHealthCheckResponse(JSON.parse(bodyText));
+    if(parsed.error) throw new Error(parsed.error + "\n" + (parsed.detail||"") + "\n応答: " + bodyText.slice(0,400));
+    hcResult = parsed.result; renderHcStage("review");
+  }catch(e){
+    renderHcStage("error", String(e && e.message || e));
+  }
+}
+async function saveHealthCheck(){
+  const summary = $("hcSummary").value.trim();
+  const date = $("hcDate").value.trim() || lToday();
+  if(!summary){ toast("要約を入力してください"); return; }
+  let imageId = null;
+  try{ imageId = "hc-" + HK.uid(); await idbPut(imageId, hcPendingFile); }
+  catch(e){ imageId = null; toast("画像の保存に失敗(要約のみ保存します)"); }
+  HK.addHealthCheck(state, { dateIso: date, summary, values: hcResult ? hcResult.values : null, imageId });
+  if($("hcAddFacts") && $("hcAddFacts").checked && hcResult && hcResult.facts)
+    hcResult.facts.forEach(f => HK.addFact(state, f, "ai"));
+  save(); clearHcStage();
+  renderHealthChecks(); renderPersonalContext();
+  toast("健診結果を保存しました");
+}
+document.addEventListener("click", (e) => {
+  const del = e.target.closest("button[data-hcdel]");
+  if(!del) return;
+  const id = del.dataset.hcdel;
+  const hcs = (state.personalContext && state.personalContext.healthChecks) || [];
+  const hc = hcs.find(h => h.id === id);
+  if(hc && hc.imageId) idbDel(hc.imageId).catch(()=>{});
+  state.personalContext.healthChecks = hcs.filter(h => h.id !== id);
+  save(); renderHealthChecks();
+});
+
 /* ================= 履歴: 日ごとの編集 ================= */
 let editDate = null;
 function renderDayStrip(){
@@ -1307,6 +1474,7 @@ function renderSettings(){
     `<button type="button" class="${(state.settings.tone||"colleague")===k?"sel":""}" data-tone="${k}">${lab}</button>`).join("");
   renderKindEditor();
   renderPersonalContext();
+  renderHealthChecks();
   $("chipEditors").innerHTML = CHIP_GROUPS.map(([key,title]) => `
     <div class="field"><label>${title}</label>
       <div class="chiplist">${state.settings[key].map((c,i) =>
@@ -1402,7 +1570,9 @@ $("fileImport").onchange = (e) => {
 };
 $("btnWipe").onclick = () => {
   if(confirm("すべての記録・設定を削除します。この操作は取り消せません。よろしいですか?")){
-    localStorage.removeItem(LS_KEY); state = HK.emptyState(); renderAll(); toast("削除しました");
+    localStorage.removeItem(LS_KEY);
+    idbClear().catch(()=>{}); // 健診画像(IndexedDB)も消す
+    state = HK.emptyState(); renderAll(); toast("削除しました");
   }
 };
 
