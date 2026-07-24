@@ -156,12 +156,14 @@ test("buildGeminiPayload: meal_tier_countsが種類別に集計", () => {
 });
 
 // ================= migrate(後方互換・非破壊) =================
-test("migrate: 空でも現行スキーマ(v7)に整う", () => {
+test("migrate: 空でも現行スキーマ(v8)に整う", () => {
   const s = HK.migrate({});
-  assertEq(s.version, 7);
+  assertEq(s.version, 8);
   assert(Array.isArray(s.events));
   assert(s.settings && Array.isArray(s.settings.mealKinds));
   assert(s.goals && typeof s.goals === "object");
+  assert(Array.isArray(s.conditions));
+  assert(s.personalContext && Array.isArray(s.personalContext.facts) && Array.isArray(s.personalContext.healthChecks));
 });
 test("migrate: 旧イベント型の変換", () => {
   const s = HK.migrate({
@@ -260,7 +262,7 @@ test("migrate: v5 string配列 → object配列(非破壊・カスタム保持)"
   const s = HK.migrate({ version: 5, settings: { mealKinds: ["サラダ・野菜", "自作カレー"] } });
   assertEq(s.settings.mealKinds[0], { label: "サラダ・野菜", emoji: "🥗", tier: 1 });
   assertEq(s.settings.mealKinds[1], { label: "自作カレー", emoji: "🍽", tier: 2 });
-  assertEq(s.version, 7);
+  assertEq(s.version, 8);
 });
 test("migrate: 旧mealKinds既定 → 新カタログ(10種)へ差し替え", () => {
   const s = HK.migrate({ settings: { mealKinds: HK.LEGACY_MEAL_KINDS_V5.slice() } });
@@ -327,6 +329,67 @@ test("migrate: v6以前(goalsキー無し)にgoalsを補完", () => {
   const s = HK.migrate({ version: 6, events: [] });
   assert(s.goals && typeof s.goals === "object");
   assertEq(s.lastGoalPromptWeek, null);
+});
+
+// ================= Phase4a: 体調 / Personal Context =================
+test("addCondition/activeConditions/resolve/reopen/delete", () => {
+  const s = HK.emptyState();
+  const now = at(2026, 7, 24, 10, 0);
+  const id = HK.addCondition(s, "のどの痛み", "😷", now, "昨夜から");
+  assertEq(HK.activeConditions(s).length, 1);
+  assertEq(s.conditions[0].startIso, "2026-07-24");
+  assertEq(s.conditions[0].note, "昨夜から");
+  assert(HK.resolveCondition(s, id, at(2026, 7, 26, 10, 0)));
+  assertEq(HK.activeConditions(s).length, 0);
+  assertEq(s.conditions[0].resolvedIso, "2026-07-26");
+  assert(HK.reopenCondition(s, id));
+  assertEq(HK.activeConditions(s).length, 1);
+  assert(HK.deleteCondition(s, id));
+  assertEq(s.conditions.length, 0);
+});
+test("addFact: user/ai を分離・updateFact/deleteFact", () => {
+  const s = HK.emptyState();
+  const uid = HK.addFact(s, "花粉症", "user");
+  const aid = HK.addFact(s, "HbA1c 5.4", "ai");
+  assertEq(s.personalContext.facts.map((f) => f.source), ["user", "ai"]);
+  assert(HK.updateFact(s, uid, "スギ花粉症"));
+  assertEq(s.personalContext.facts.find((f) => f.id === uid).text, "スギ花粉症");
+  assert(HK.deleteFact(s, aid));
+  assertEq(s.personalContext.facts.length, 1);
+});
+test("buildContextPayload: 要約のみ(生ログを送らない)", () => {
+  const s = HK.emptyState();
+  const now = at(2026, 7, 24, 10, 0);
+  HK.addCondition(s, "頭痛", "🤕", now, "ズキズキ");
+  HK.addFact(s, "甘い物が好き", "user");
+  HK.addHealthCheck(s, { dateIso: "2026-07-01", summary: "血圧やや高め" });
+  const ctx = HK.buildContextPayload(s, now);
+  assertEq(ctx.personal_context, ["甘い物が好き"]);
+  assertEq(ctx.active_conditions, [{ label: "頭痛", since: "2026-07-24", note: "ズキズキ" }]);
+  assertEq(ctx.latest_health_check, { date: "2026-07-01", summary: "血圧やや高め" });
+});
+test("buildGeminiPayload: context を載せる/未指定でも壊れない", () => {
+  const s = HK.emptyState();
+  const days = HK.buildDaySummaries(s, Date.now(), 3);
+  const noCtx = HK.buildGeminiPayload(days, [], null);
+  assertEq(noCtx.personal_context, null);
+  assertEq(noCtx.active_conditions, null);
+  const ctx = { personal_context: ["花粉症"], active_conditions: [{ label: "頭痛" }] };
+  const withCtx = HK.buildGeminiPayload(days, [], null, ctx);
+  assertEq(withCtx.personal_context, ["花粉症"]);
+  assertEq(withCtx.active_conditions, [{ label: "頭痛" }]);
+});
+test("migrate: conditions/personalContext を補完(往復非破壊)", () => {
+  const s0 = HK.emptyState();
+  HK.addCondition(s0, "腹痛", "🤢", Date.now());
+  HK.addFact(s0, "運動不足", "user");
+  const round = HK.migrate(JSON.parse(JSON.stringify(s0)));
+  assertEq(round.conditions.length, 1);
+  assertEq(round.personalContext.facts.length, 1);
+  // v7以前(キー無し)も補完される
+  const old = HK.migrate({ version: 7, events: [] });
+  assert(Array.isArray(old.conditions));
+  assert(old.personalContext && Array.isArray(old.personalContext.facts));
 });
 
 // ================= 結果 =================

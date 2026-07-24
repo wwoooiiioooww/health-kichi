@@ -173,6 +173,21 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .selitem .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
 .evtier{margin:12px 0 2px}
 
+/* 体調 / Personal Context */
+.btn-cond{display:block; width:100%; padding:12px; border-radius:12px; background:var(--surface2);
+  border:1px solid var(--line); font-weight:600; font-size:14px; color:var(--text); margin-top:8px}
+.btn-cond:active{transform:scale(.98)}
+.condlist{display:flex; flex-direction:column; gap:6px; margin-bottom:2px}
+.condchip{display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
+  padding:10px 12px; background:var(--surface2); border:1px solid var(--amber); border-radius:12px;
+  font-weight:600; font-size:14px; color:var(--text)}
+.condchip small{color:var(--muted); font-weight:400}
+.condchip .done{color:var(--good); font-weight:700; white-space:nowrap}
+.pcrow{display:flex; align-items:center; gap:6px; margin:6px 0}
+.pcrow input{flex:1}
+.pcbadge{font-size:15px}
+.pcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
+
 /* 計画: 週次目標 */
 .goalrow{margin:12px 0}
 .goalhead{font-size:13px; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; gap:6px}
@@ -212,6 +227,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div id="ckHome"></div>
       <input id="noteHome" data-note="" placeholder="ひとことメモ(任意) 例: 終日眠かった / ずっと客先" maxlength="80" style="margin-top:10px">
     </div>
+    <div class="card" id="conditionCard"></div>
     <div class="card">
       <h2>きろく</h2>
       <div class="subh">🍽 食事</div>
@@ -286,6 +302,11 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <p class="note">×で削除、名前を入れて「追加」で登録。ホームに即反映されます。</p>
     </div>
     <div class="card">
+      <h2>自分のこと(Personal Context)</h2>
+      <div id="pcFacts"></div>
+      <p class="note">AIレポートに背景として渡されます。🤖はAIが健診などから抽出した項目です。すべて端末内に保存されます。</p>
+    </div>
+    <div class="card">
       <h2>データ</h2>
       <div class="row2">
         <button class="btn" id="btnExport">エクスポート</button>
@@ -355,6 +376,18 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <div class="row2" style="margin-top:16px">
     <button class="btn" id="btnMealCancel">やめる</button>
     <button class="btn primary" id="btnMealSave" style="flex:1">記録する</button>
+  </div>
+</dialog>
+
+<dialog id="dlgCondition">
+  <h3 style="font-size:16px; margin-bottom:12px">🩹 いまの体調</h3>
+  <div class="subh" style="margin-top:0">どんな症状?(複数OK)</div>
+  <div class="chips g3" id="condPresets"></div>
+  <div class="field" style="margin-top:12px"><label>メモ(任意)</label>
+    <input id="condNote" placeholder="例: 微熱37.2 / 昨夜から" maxlength="60"></div>
+  <div class="row2" style="margin-top:14px">
+    <button class="btn" id="btnCondCancel">やめる</button>
+    <button class="btn primary" id="btnCondSave" style="flex:1">記録する</button>
   </div>
 </dialog>
 
@@ -537,6 +570,9 @@ document.addEventListener("change", (e) => {
     const field = t.dataset.notefield || "note";
     HK.setCheckin(state, t.dataset.note, field, t.value.trim()); save();
     if(t.value.trim()) toast("メモを保存しました");
+  }
+  if(t.matches && t.matches("input[data-fact]")){
+    HK.updateFact(state, t.dataset.fact, t.value); save();
   }
 });
 document.addEventListener("click", (e) => {
@@ -914,7 +950,8 @@ async function generateReport(){
   try{
     const days = HK.buildDaySummaries(state, Date.now(), 7);
     const weeks = HK.buildPastWeeks(state, Date.now(), 4);
-    const payload = HK.buildGeminiPayload(days, weeks, state.settings.lastExperiment);
+    const context = HK.buildContextPayload(state, Date.now());
+    const payload = HK.buildGeminiPayload(days, weeks, state.settings.lastExperiment, context);
     const model = HK.resolveModel(state.settings);
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -1016,6 +1053,71 @@ function maybeShowWeekend(){
   renderWeekend(); $("dlgWeekend").showModal();
 }
 $("btnWeekendClose").onclick = () => $("dlgWeekend").close();
+
+/* ================= 体調(オンデマンド) ================= */
+function renderConditions(){
+  const active = HK.activeConditions(state);
+  let h = `<h2>からだの調子</h2>`;
+  if(active.length){
+    h += `<div class="condlist">` + active.map(c =>
+      `<button type="button" class="condchip" data-resolve="${c.id}">
+        <span>${c.emoji} ${esc(c.label)} <small>${c.startIso.slice(5).replace("-","/")}〜</small></span>
+        <span class="done">✓ 治った</span></button>`).join("") + `</div>`;
+  }
+  h += `<button type="button" class="btn-cond" id="btnCondAdd">🤒 いまの体調を記録</button>`;
+  $("conditionCard").innerHTML = h;
+}
+let condPicks = [];
+function openConditionDialog(){
+  condPicks = [];
+  $("condNote").value = "";
+  $("condPresets").innerHTML = HK.CONDITION_PRESETS.map((p,i) =>
+    `<button type="button" data-cond="${i}">${p.emoji} ${esc(p.label)}</button>`).join("");
+  $("dlgCondition").showModal();
+}
+document.addEventListener("click", (e) => {
+  if(e.target.closest("#btnCondAdd")){ openConditionDialog(); return; }
+  const cp = e.target.closest("#condPresets button[data-cond]");
+  if(cp){
+    const i = +cp.dataset.cond, at = condPicks.indexOf(i);
+    if(at >= 0) condPicks.splice(at, 1); else condPicks.push(i);
+    cp.classList.toggle("sel", condPicks.includes(i));
+    return;
+  }
+  const rc = e.target.closest("button[data-resolve]");
+  if(rc){
+    const id = rc.dataset.resolve;
+    HK.resolveCondition(state, id, Date.now()); save(); renderConditions();
+    toast("お大事に。治ったで記録しました", () => { HK.reopenCondition(state, id); save(); renderConditions(); });
+  }
+});
+$("btnCondCancel").onclick = () => $("dlgCondition").close();
+$("btnCondSave").onclick = () => {
+  if(!condPicks.length){ toast("症状を選んでください"); return; }
+  const note = $("condNote").value.trim();
+  const ids = condPicks.map(i => { const p = HK.CONDITION_PRESETS[i]; return HK.addCondition(state, p.label, p.emoji, Date.now(), note); });
+  save(); renderConditions(); $("dlgCondition").close();
+  toast("体調を記録しました", () => { ids.forEach(id => HK.deleteCondition(state, id)); save(); renderConditions(); });
+};
+
+/* ================= Personal Context(自分のこと) ================= */
+function renderPersonalContext(){
+  const facts = (state.personalContext && state.personalContext.facts) || [];
+  $("pcFacts").innerHTML = facts.map(f =>
+    `<div class="pcrow"><input data-fact="${f.id}" value="${esc(f.text)}" maxlength="200">
+      ${f.source==="ai" ? '<span class="pcbadge" title="AIが抽出">🤖</span>' : ""}
+      <button type="button" class="rm" data-factdel="${f.id}" aria-label="削除">×</button></div>`).join("")
+    + `<div class="row2" style="margin-top:8px"><input id="pcAdd" placeholder="自分のことを追加 例: 花粉症 / 甘い物が好き" maxlength="200">
+       <button type="button" class="btn" id="btnPcAdd">追加</button></div>`;
+}
+document.addEventListener("click", (e) => {
+  const del = e.target.closest("button[data-factdel]");
+  if(del){ HK.deleteFact(state, del.dataset.factdel); save(); renderPersonalContext(); return; }
+  if(e.target.closest("#btnPcAdd")){
+    const v = $("pcAdd").value.trim();
+    if(v){ HK.addFact(state, v, "user"); save(); renderPersonalContext(); toast("追加しました"); }
+  }
+});
 
 /* ================= 履歴: 日ごとの編集 ================= */
 let editDate = null;
@@ -1204,6 +1306,7 @@ function renderSettings(){
   $("toneSeg").innerHTML = TONE_DEFS.map(([k,lab]) =>
     `<button type="button" class="${(state.settings.tone||"colleague")===k?"sel":""}" data-tone="${k}">${lab}</button>`).join("");
   renderKindEditor();
+  renderPersonalContext();
   $("chipEditors").innerHTML = CHIP_GROUPS.map(([key,title]) => `
     <div class="field"><label>${title}</label>
       <div class="chiplist">${state.settings[key].map((c,i) =>
@@ -1323,7 +1426,7 @@ function renderAll(){
   const d = new Date(iso + "T12:00:00");
   const late = now.getHours() < 4 ? "(深夜)" : "";
   $("hDate").textContent = `${d.getMonth()+1}月${d.getDate()}日(${"月火水木金土日"[(d.getDay()+6)%7]})${late}`;
-  renderSleep(); renderCheckinHome(); renderChips(); renderTodayLog(); renderFab(); route();
+  renderSleep(); renderCheckinHome(); renderConditions(); renderChips(); renderTodayLog(); renderFab(); route();
 }
 
 function handleWakeResult(r){

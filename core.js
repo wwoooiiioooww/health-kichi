@@ -102,7 +102,7 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 7,
+  version: 8,
   events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label(=種類), tier(MEALのみ1-3), place(MEALの店・任意)}
   nextEventId: 1,
   sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
@@ -110,6 +110,8 @@ HK.emptyState = () => ({
   exercise: {},        // 論理日 -> 0-3 (全然/すこし/ふつう/たくさん)
   goals: {},           // 週(月曜ISO) -> {sleepMin?, greenDays?, exerciseDays?, junkMax?, lateCoffeeMax?}
   lastGoalPromptWeek: null, // 週末ポップアップを週1回に制限
+  conditions: [],      // 体調ログ {id, emoji, label, startIso, resolvedIso|null, note}
+  personalContext: { facts: [], healthChecks: [] }, // 育つ本人情報。facts{id,text,source},healthChecks{id,dateIso,summary,values,imageId}
   reports: [],
   settings: {
     apiKey: "",
@@ -169,7 +171,12 @@ HK.migrate = (s) => {
       });
     }
   }
-  s.version = 7;
+  // conditions / personalContext の補完(nested配列の健全性も保証・非破壊)
+  if (!Array.isArray(s.conditions)) s.conditions = [];
+  if (!s.personalContext || typeof s.personalContext !== "object") s.personalContext = { facts: [], healthChecks: [] };
+  if (!Array.isArray(s.personalContext.facts)) s.personalContext.facts = [];
+  if (!Array.isArray(s.personalContext.healthChecks)) s.personalContext.healthChecks = [];
+  s.version = 8;
   return s;
 };
 
@@ -295,6 +302,97 @@ HK.setEventTier = (state, id, tier) => {
 HK.eventsOn = (state, dateIso) =>
   state.events.filter((e) => HK.logicalDateIso(e.t) === dateIso);
 
+// ---------------- 体調(オンデマンド) / Personal Context ----------------
+
+/** 衝突しにくいローカルID(体調・facts・健診用。低頻度データなので十分) */
+HK.uid = () => Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
+
+HK.CONDITION_PRESETS = [
+  { emoji: "🤒", label: "熱・発熱" }, { emoji: "😷", label: "のどの痛み" },
+  { emoji: "🤧", label: "鼻・風邪" }, { emoji: "🤢", label: "腹痛・胃腸" },
+  { emoji: "🤕", label: "頭痛" }, { emoji: "🦷", label: "歯の痛み" },
+  { emoji: "💢", label: "肩こり・腰痛" }, { emoji: "😪", label: "だるさ・倦怠感" }
+];
+
+HK.addCondition = (state, label, emoji, nowMs, note) => {
+  if (!state.conditions) state.conditions = [];
+  const c = { id: HK.uid(), emoji: emoji || "🩹", label: String(label).slice(0, 40),
+    startIso: HK.logicalDateIso(nowMs), resolvedIso: null, note: note ? String(note).slice(0, 60) : null };
+  state.conditions.push(c);
+  return c.id;
+};
+HK.resolveCondition = (state, id, nowMs) => {
+  const c = (state.conditions || []).find((x) => x.id === id);
+  if (!c) return false;
+  c.resolvedIso = HK.logicalDateIso(nowMs);
+  return true;
+};
+HK.reopenCondition = (state, id) => {
+  const c = (state.conditions || []).find((x) => x.id === id);
+  if (!c) return false;
+  c.resolvedIso = null;
+  return true;
+};
+HK.deleteCondition = (state, id) => {
+  const before = (state.conditions || []).length;
+  state.conditions = (state.conditions || []).filter((x) => x.id !== id);
+  return state.conditions.length < before;
+};
+/** 未解決(続いている)の体調 */
+HK.activeConditions = (state) => (state.conditions || []).filter((c) => !c.resolvedIso);
+
+const ensurePC = (state) => {
+  if (!state.personalContext) state.personalContext = { facts: [], healthChecks: [] };
+  if (!Array.isArray(state.personalContext.facts)) state.personalContext.facts = [];
+  if (!Array.isArray(state.personalContext.healthChecks)) state.personalContext.healthChecks = [];
+  return state.personalContext;
+};
+/** 本人の背景事実を追加。source: "user"(手入力) | "ai"(健診解析など) */
+HK.addFact = (state, text, source) => {
+  const pc = ensurePC(state);
+  const f = { id: HK.uid(), text: String(text).slice(0, 200), source: source === "ai" ? "ai" : "user", createdAt: Date.now() };
+  pc.facts.push(f);
+  return f.id;
+};
+HK.updateFact = (state, id, text) => {
+  const f = ensurePC(state).facts.find((x) => x.id === id);
+  if (!f) return false;
+  f.text = String(text).slice(0, 200);
+  return true;
+};
+HK.deleteFact = (state, id) => {
+  const pc = ensurePC(state);
+  const before = pc.facts.length;
+  pc.facts = pc.facts.filter((x) => x.id !== id);
+  return pc.facts.length < before;
+};
+/** 健診結果を追加(要約＋任意の値＋端末内画像ID)。imageIdの実体はIndexedDB(Phase4b)。 */
+HK.addHealthCheck = (state, hc) => {
+  const pc = ensurePC(state);
+  const h = { id: HK.uid(), dateIso: (hc && hc.dateIso) || HK.logicalDateIso(Date.now()),
+    summary: String((hc && hc.summary) || "").slice(0, 2000),
+    values: (hc && hc.values) || null, imageId: (hc && hc.imageId) || null, createdAt: Date.now() };
+  pc.healthChecks.push(h);
+  return h.id;
+};
+
+/** AIレポート用の文脈payload(体調・Personal Context)。生ログではなく要約のみ。 */
+HK.buildContextPayload = (state, nowMs) => {
+  const pc = ensurePC(state);
+  const active = HK.activeConditions(state).map((c) => ({ label: c.label, since: c.startIso, note: c.note || undefined }));
+  const cutoff = HK.logicalDateIso(nowMs - 14 * 86400000);
+  const recent = (state.conditions || [])
+    .filter((c) => (c.resolvedIso || c.startIso) >= cutoff)
+    .map((c) => ({ label: c.label, from: c.startIso, to: c.resolvedIso || null }));
+  const hc = pc.healthChecks.slice().sort((a, b) => a.createdAt - b.createdAt).pop();
+  return {
+    personal_context: pc.facts.length ? pc.facts.map((f) => f.text) : null,
+    active_conditions: active.length ? active : null,
+    recent_conditions: recent.length ? recent : null,
+    latest_health_check: hc ? { date: hc.dateIso, summary: hc.summary } : null
+  };
+};
+
 // ---------------- 週次集計 ----------------
 
 HK.parseHHmm = (s) => {
@@ -418,7 +516,7 @@ HK.weekProgress = (state, nowMs) => {
   };
 };
 
-HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
+HK.buildGeminiPayload = (days, pastWeeks, lastExperiment, context) => {
   const sleepVals = days.map((d) => d.sleepDurationMin).filter((v) => v != null);
   const allCoffee = [].concat(...days.map((d) => d.coffeeTimesHHmm));
   const allMeals = [].concat(...days.map((d) => d.meals));
@@ -456,7 +554,12 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
       week_start: w.weekStartIso, sleep_avg_min: w.sleepAvgMin,
       coffee_after_21: w.coffeeAfter21Count, mood_avg: w.moodAvg
     })),
-    last_week_experiment: lastExperiment || null
+    last_week_experiment: lastExperiment || null,
+    // 体調・本人背景(要約のみ)。context未指定でも既存挙動を壊さない。
+    personal_context: (context && context.personal_context) || null,
+    active_conditions: (context && context.active_conditions) || null,
+    recent_conditions: (context && context.recent_conditions) || null,
+    latest_health_check: (context && context.latest_health_check) || null
   };
 };
 
@@ -526,6 +629,7 @@ HK.buildSystemPrompt = (settings) => {
   "- 1日1〜2食の食事スタイルは本人の合理的な選択として尊重し、食事回数への言及・矯正提案をしない。",
   "- データにないことを推測で断定しない。欠損日は欠損として扱い、記録しなかったことを責めない。",
   "- 睡眠改善を最優先。カフェイン時刻・就寝時刻と、気分/はかどり/イラッと度の相関に注目する。",
+  "- payload の personal_context(本人の背景・健診の要点) と active_conditions/recent_conditions(体調不良) がある場合は最優先の文脈として解釈する。体調不良の期間の乱れは責めず、回復を後押しする。latest_health_check の要点は根拠として活用してよい。",
   tone,
   "- 全フィールド合計で400字以内。",
   "",
