@@ -156,9 +156,9 @@ test("buildGeminiPayload: meal_tier_countsが種類別に集計", () => {
 });
 
 // ================= migrate(後方互換・非破壊) =================
-test("migrate: 空でもv5スキーマに整う", () => {
+test("migrate: 空でも現行スキーマ(v6)に整う", () => {
   const s = HK.migrate({});
-  assertEq(s.version, 5);
+  assertEq(s.version, 6);
   assert(Array.isArray(s.events));
   assert(s.settings && Array.isArray(s.settings.mealKinds));
 });
@@ -196,6 +196,84 @@ test("migrate: 既存のユーザーデータ(events/sleep)を消さない", () 
   assertEq(round.events.length, 1);
   assertEq(round.events[0].label, "自炊");
   assertEq(round.sleep["2026-07-24"].durationMin, 8 * 60);
+});
+
+// ================= Phase2: 食事モデル(種類カタログ・place・tier) =================
+test("emptyState: mealKindsはobject配列・logMode=batch", () => {
+  const s = HK.emptyState();
+  assert(typeof s.settings.mealKinds[0] === "object", "kindはobject");
+  assertEq(s.settings.mealKinds[0].label, "サラダ・野菜");
+  assertEq(s.settings.mealKinds[0].tier, 1);
+  assert(s.settings.mealKinds[0].emoji, "emojiあり");
+  assertEq(s.settings.logMode, "batch");
+});
+test("mealKindMeta: 既知/未知", () => {
+  assertEq(HK.mealKindMeta("バーガー・FF").tier, 3);
+  assertEq(HK.mealKindMeta("寿司・海鮮").tier, 1); // 旧名
+  assertEq(HK.mealKindMeta("謎料理"), { emoji: "🍽", tier: 2 });
+});
+test("setEventPlace: 店を分離設定、空はnull", () => {
+  const s = HK.emptyState();
+  const id = HK.logEvent(s, "MEAL", "魚・海鮮", at(2026, 7, 24, 20, 0), 1);
+  assert(HK.setEventPlace(s, id, "自炊"));
+  assertEq(s.events[0].place, "自炊");
+  assert(HK.setEventPlace(s, id, ""));
+  assertEq(s.events[0].place, null, "空文字→null");
+});
+test("setEventTier: MEALのみ・値を更新", () => {
+  const s = HK.emptyState();
+  const mid = HK.logEvent(s, "MEAL", "麺類", at(2026, 7, 24, 20, 0), 2);
+  const cid = HK.logEvent(s, "COFFEE", null, at(2026, 7, 24, 22, 0));
+  assert(HK.setEventTier(s, mid, 3));
+  assertEq(s.events.find((e) => e.id === mid).tier, 3);
+  assert(!HK.setEventTier(s, cid, 1), "COFFEEはtier不可");
+});
+test("複数品を同時刻に記録→tier別集計(鮭定食+クレープ)", () => {
+  const s = HK.emptyState();
+  const t = at(2026, 7, 24, 21, 0);
+  ["🐟魚:1", "🍚ごはん:2", "🍰デザート:3"].forEach((x) => {
+    const [label, tier] = x.split(":");
+    HK.logEvent(s, "MEAL", label, t, +tier);
+  });
+  const payload = HK.buildGeminiPayload(HK.buildDaySummaries(s, t, 1), [], null);
+  assertEq(payload.this_week_stats.meal_tier_counts, { good: 1, normal: 1, junk: 1 });
+});
+test("buildDaySummaries: meals は kind と place を分離保持", () => {
+  const s = HK.emptyState();
+  const t = at(2026, 7, 24, 20, 0);
+  const id = HK.logEvent(s, "MEAL", "魚・海鮮", t, 1);
+  HK.setEventPlace(s, id, "自炊");
+  const days = HK.buildDaySummaries(s, t, 1);
+  assertEq(days[0].meals[0], { tier: 1, kind: "魚・海鮮", place: "自炊" });
+});
+test("buildGeminiPayload: meal_kind_counts / meal_place_counts", () => {
+  const s = HK.emptyState();
+  const t = at(2026, 7, 24, 20, 0);
+  const id = HK.logEvent(s, "MEAL", "魚・海鮮", t, 1);
+  HK.setEventPlace(s, id, "自炊");
+  const p = HK.buildGeminiPayload(HK.buildDaySummaries(s, t, 1), [], null);
+  assertEq(p.this_week_stats.meal_kind_counts, { "魚・海鮮": 1 });
+  assertEq(p.this_week_stats.meal_place_counts, { "自炊": 1 });
+});
+test("migrate: v5 string配列 → object配列(非破壊・カスタム保持)", () => {
+  const s = HK.migrate({ version: 5, settings: { mealKinds: ["サラダ・野菜", "自作カレー"] } });
+  assertEq(s.settings.mealKinds[0], { label: "サラダ・野菜", emoji: "🥗", tier: 1 });
+  assertEq(s.settings.mealKinds[1], { label: "自作カレー", emoji: "🍽", tier: 2 });
+  assertEq(s.version, 6);
+});
+test("migrate: 旧mealKinds既定 → 新カタログ(10種)へ差し替え", () => {
+  const s = HK.migrate({ settings: { mealKinds: HK.LEGACY_MEAL_KINDS_V5.slice() } });
+  assertEq(s.settings.mealKinds.length, 10);
+  assert(s.settings.mealKinds.every((k) => typeof k === "object" && k.emoji && k.tier));
+});
+test("migrate: object配列は冪等(2回でも壊れない)・placeも保持", () => {
+  const s0 = HK.emptyState();
+  const id = HK.logEvent(s0, "MEAL", "寿司", at(2026, 7, 24, 20, 0), 1);
+  HK.setEventPlace(s0, id, "スシロー");
+  const once = HK.migrate(JSON.parse(JSON.stringify(s0)));
+  const twice = HK.migrate(JSON.parse(JSON.stringify(once)));
+  assertEq(twice, once);
+  assertEq(twice.events[0].place, "スシロー");
 });
 
 // ================= 結果 =================

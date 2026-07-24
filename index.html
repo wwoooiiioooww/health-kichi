@@ -8,6 +8,12 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- フォントは非レンダーブロッキングで読み込む(遅い/失敗しても本体の描画を止めない。読めたらNoto Sans JPに差し替わる) -->
+<link rel="stylesheet" media="print" onload="this.media='all'"
+  href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
 :root{
   --bg:#0D131F; --surface:#171F2E; --surface2:#212D42; --line:#2A3850;
@@ -17,7 +23,7 @@
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
 html,body{margin:0; padding:0; background:var(--bg); color:var(--text);
-  font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+  font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI",system-ui,sans-serif;
   font-size:16px; line-height:1.6}
 body{padding-bottom:76px; max-width:560px; margin:0 auto}
 h1,h2,h3{margin:0; font-weight:700}
@@ -144,6 +150,35 @@ dialog{background:var(--surface); color:var(--text); border:1px solid var(--line
   border-radius:var(--radius); padding:20px; width:min(92vw,380px)}
 dialog::backdrop{background:rgba(0,0,0,.6)}
 .hidden{display:none!important}
+
+/* きろく: まとめ入力・食事の種類 */
+.btn-meal-add{display:block; width:100%; padding:15px; border-radius:12px; font-size:16px; font-weight:700;
+  background:linear-gradient(140deg,#26344E,#1B2740); color:var(--moon); border:1px solid var(--line)}
+.btn-meal-add:active{transform:scale(.98)}
+.chip-nomeal{width:100%; padding:11px; background:var(--surface2); border:1px solid var(--line);
+  border-radius:12px; font-size:14px; font-weight:600; color:var(--text)}
+.chip-nomeal:active{background:var(--surface); transform:scale(.98)}
+.kind{font-size:13px; padding:11px 4px; font-weight:600}
+.kG{border-color:#3E6B54!important; background:#17251E!important}
+.kN{border-color:#6B5B3E!important; background:#251F16!important}
+.kJ{border-color:#6B3E3E!important; background:#251818!important}
+.kind.sel{outline:2px solid var(--moon); outline-offset:1px}
+.chips button.sel:not(.kind){background:var(--moon); color:#101828; border-color:var(--moon)}
+.selitem{display:flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--line);
+  border-radius:10px; padding:6px 8px; margin:6px 0}
+.selitem .nm{flex:1; font-size:14px; font-weight:600}
+.miniseg{display:flex; gap:4px}
+.miniseg button{padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); font-size:14px; line-height:1}
+.miniseg button.sel{outline:2px solid var(--moon); outline-offset:1px}
+.selitem .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
+.evtier{margin:12px 0 2px}
+
+/* FAB(全タブ右下) */
+.fab{position:fixed; right:16px; bottom:calc(84px + env(safe-area-inset-bottom)); width:56px; height:56px;
+  border-radius:50%; background:var(--moon); color:#101828; font-size:26px; font-weight:700;
+  box-shadow:0 6px 20px rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:9}
+.fab:active{transform:scale(.92)}
+
 .spin{display:inline-block; animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
@@ -166,11 +201,12 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <input id="noteHome" data-note="" placeholder="ひとことメモ(任意) 例: 終日眠かった / ずっと客先" maxlength="80" style="margin-top:10px">
     </div>
     <div class="card">
-      <h2>きろく(1タップ)</h2>
-      <div class="subh">🍽 食事はどうでした?</div>
-      <div class="chips g3 tier" id="tierBtns"></div>
+      <h2>きろく</h2>
+      <div class="subh">🍽 食事</div>
+      <div class="seg" id="logModeSeg" style="margin-bottom:10px"></div>
+      <div id="mealEntry"></div>
       <div class="placerow hidden" id="placeRow"></div>
-      <div class="chips" style="margin-top:8px"><button class="no-meal" data-nomeal="1">今日は食べてない</button></div>
+      <div style="margin-top:8px"><button type="button" class="chip-nomeal" data-nomeal="1">🚫 食べてない</button></div>
       <div class="subh">☕ カフェイン</div>
       <div class="chips"><button type="button" class="no-meal" data-latecoffee="1" style="color:var(--text)">☕ 21時以降にコーヒーを飲んだ</button></div>
       <div class="subh">🏃 運動(その場で)</div><div class="chips g3" id="activityChips"></div>
@@ -232,6 +268,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     </div>
     <div class="card">
       <h2>ボタンの編集</h2>
+      <div id="kindEditor"></div>
       <div id="chipEditors"></div>
       <p class="note">×で削除、名前を入れて「追加」で登録。ホームに即反映されます。</p>
     </div>
@@ -277,12 +314,38 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <div class="chips g3" id="slotBtns"></div>
   <div class="field" style="margin-top:12px"><label>正確な時刻</label>
     <div class="timepick"><select id="inEvH"></select><span class="colon">:</span><select id="inEvM"></select></div></div>
+  <div class="evtier hidden" id="evTierWrap">
+    <div class="subh">健康度(自動セットの修正)</div>
+    <div class="chips g3 tier" id="evTierBtns"></div>
+  </div>
   <div class="row2" style="margin-top:14px">
     <button class="btn danger" id="btnEvDelete">削除</button>
     <button class="btn" id="btnEvCancel">やめる</button>
     <button class="btn primary" id="btnEvSave" style="flex:1">保存</button>
   </div>
 </dialog>
+
+<dialog id="dlgMeal">
+  <h3 style="font-size:16px; margin-bottom:12px" id="dlgMealTitle">まとめて記録</h3>
+  <div class="subh" style="margin-top:0">対象日</div>
+  <div class="chips" id="mealDayBtns"></div>
+  <div class="subh">だいたいの時間</div>
+  <div class="chips g3" id="mealSlotBtns"></div>
+  <div class="subh">食べたもの(複数OK・色=健康度)</div>
+  <div class="chips g3" id="mealKindBtns"></div>
+  <div id="mealSelWrap" class="hidden">
+    <div class="subh">選んだもの(🟢🟡🔴で健康度を修正・×で削除)</div>
+    <div id="mealSelected"></div>
+  </div>
+  <div class="subh">🏪 店(任意)</div>
+  <div class="chips g3" id="mealStoreBtns"></div>
+  <div class="row2" style="margin-top:16px">
+    <button class="btn" id="btnMealCancel">やめる</button>
+    <button class="btn primary" id="btnMealSave" style="flex:1">記録する</button>
+  </div>
+</dialog>
+
+<button type="button" class="fab hidden" id="fab" aria-label="記録を追加"></button>
 
 <script src="core.js"></script>
 <script>
@@ -385,6 +448,7 @@ function renderSleep(){
   const bb = $("btnBed"); if(bb) bb.onclick = () => {
     HK.markBed(state, Date.now()); save(); renderSleep(); toast("おやすみなさい。よい眠りを");
   };
+  if(document.getElementById("fab")) renderFab();
 }
 let dlgTarget = null;
 function openSleepDialog(dateIso, existing){
@@ -477,11 +541,28 @@ let logTargetDate = null; // null = 今日(論理日)。日エディタで過去
 const targetDate = () => logTargetDate || lToday();
 const TIERS = [[3,"🔴 ジャンク","tJ"],[2,"🟡 ふつう","tN"],[1,"🟢 体にいい","tG"]];
 const TIER_MARK = {1:"🟢",2:"🟡",3:"🔴"};
+const TIER_CLS = {1:"kG",2:"kN",3:"kJ"}; // 種類チップの色クラス
 const TYPE_ICON = {MEAL:"🍽", COFFEE:"☕", ACTIVITY:"🏃", NO_MEAL:"—"};
+const LOG_MODES = [["batch","まとめて"],["quick","都度(1タップ)"]];
 
+function renderLogModeSeg(){
+  const mode = state.settings.logMode || "batch";
+  $("logModeSeg").innerHTML = LOG_MODES.map(([k,lab]) =>
+    `<button type="button" class="${mode===k?"sel":""}" data-logmode="${k}">${lab}</button>`).join("");
+}
+function renderMealEntry(){
+  const mode = state.settings.logMode || "batch";
+  if(mode === "quick"){
+    $("mealEntry").innerHTML = `<div class="chips g3 tier">` + TIERS.map(([t,lab,cls]) =>
+      `<button type="button" class="${cls}" data-tier="${t}">${lab}</button>`).join("") + `</div>`;
+  } else {
+    $("mealEntry").innerHTML = `<button type="button" class="btn-meal-add" id="btnMealAdd">＋ まとめて記録</button>`;
+    hidePlaceRow();
+  }
+}
 function renderChips(){
-  $("tierBtns").innerHTML = TIERS.map(([t,lab,cls]) =>
-    `<button type="button" class="${cls}" data-tier="${t}">${lab}</button>`).join("");
+  renderLogModeSeg();
+  renderMealEntry();
   $("activityChips").innerHTML = state.settings.activityChips.map(c =>
     `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("");
 }
@@ -527,14 +608,19 @@ document.addEventListener("click", (e) => {
 });
 function showPlaceRow(mealId, showStores){
   const row = $("placeRow");
-  const chips = showStores ? state.settings.mealChips : state.settings.mealKinds;
-  const toggle = showStores
-    ? `<button type="button" data-placeview="${mealId}:kinds" style="color:var(--moon)">← 種類から選ぶ</button>`
-    : `<button type="button" data-placeview="${mealId}:stores" style="color:var(--moon)">🏪 お店から選ぶ</button>`;
-  row.innerHTML = `<div class="q">なにを食べました?(任意)</div><div class="chips g3">` +
-    chips.map(c =>
-      `<button type="button" data-place="${mealId}:${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("") +
-    toggle +
+  let inner, q;
+  if(showStores){
+    q = "どこで食べました?(任意)";
+    inner = state.settings.mealChips.map(c =>
+      `<button type="button" data-placestore="${mealId}:${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("") +
+      `<button type="button" data-placeview="${mealId}:kinds" style="color:var(--moon)">← 種類にもどる</button>`;
+  } else {
+    q = "なにを食べました?(任意)";
+    inner = state.settings.mealKinds.map(k =>
+      `<button type="button" class="kind ${TIER_CLS[k.tier]||"kN"}" data-place="${mealId}:${String(k.label).replace(/"/g,"&quot;")}">${k.emoji||"🍽"} ${esc(k.label)}</button>`).join("") +
+      `<button type="button" data-placeview="${mealId}:stores" style="color:var(--moon)">🏪 お店から選ぶ</button>`;
+  }
+  row.innerHTML = `<div class="q">${q}</div><div class="chips g3">` + inner +
     `<button type="button" data-place="${mealId}:" style="color:var(--muted)">スキップ</button></div>`;
   row.classList.remove("hidden");
   clearTimeout(placeTimer);
@@ -546,6 +632,13 @@ document.addEventListener("click", (e) => {
   if(pv){
     const [id, view] = pv.dataset.placeview.split(":");
     showPlaceRow(+id, view === "stores"); return;
+  }
+  const ps = e.target.closest("button[data-placestore]");
+  if(ps){
+    const j = ps.dataset.placestore.indexOf(":");
+    const sid = +ps.dataset.placestore.slice(0, j), store = ps.dataset.placestore.slice(j+1);
+    if(store){ HK.setEventPlace(state, sid, store); save(); renderTodayLog(); renderDayEditor(); toast(`🏪 ${store} を記録`); }
+    hidePlaceRow(); return;
   }
   const p = e.target.closest("button[data-place]");
   if(!p) return;
@@ -559,8 +652,9 @@ function eventLine(e){
   const name = e.type === "NO_MEAL" ? "食べてない"
     : e.type === "COFFEE" ? (e.label || "コーヒー")
     : (e.label || (e.type === "MEAL" ? "食事" : ""));
+  const place = e.place ? ` <small style="color:var(--muted)">· ${esc(e.place)}</small>` : "";
   const tier = e.type === "MEAL" ? `<span class="tierdot">${TIER_MARK[e.tier||2]}</span>` : "";
-  return `<li data-eid="${e.id}"><time>${HK.hhmm(e.t)}</time><span>${TYPE_ICON[e.type]||""} ${esc(name)}</span>${tier}</li>`;
+  return `<li data-eid="${e.id}"><time>${HK.hhmm(e.t)}</time><span>${TYPE_ICON[e.type]||""} ${esc(name)}${place}</span>${tier}</li>`;
 }
 function renderTodayLog(){
   const ev = HK.eventsOn(state, lToday());
@@ -571,7 +665,7 @@ function renderTodayLog(){
 }
 
 /* ログの時刻修正/削除 */
-let evTarget = null;
+let evTarget = null, evTierSel = null;
 function openEventDialog(id){
   const e = state.events.find(x => x.id === id); if(!e) return;
   initTimePickers();
@@ -583,8 +677,24 @@ function openEventDialog(id){
   $("slotBtns").innerHTML = slots.map(([lab,m]) =>
     `<button type="button" data-slot="${m}">${lab}</button>`).join("");
   $("slotBtns").querySelectorAll("button").forEach(b => b.onclick = () => setPicker("inEvH","inEvM", +b.dataset.slot));
+  // 食事は健康度tierも修正可
+  const isMeal = e.type === "MEAL";
+  $("evTierWrap").classList.toggle("hidden", !isMeal);
+  evTierSel = isMeal ? (e.tier || 2) : null;
+  if(isMeal){
+    $("evTierBtns").innerHTML = TIERS.map(([t,lab,cls]) =>
+      `<button type="button" class="${cls}${evTierSel===t?" sel":""}" data-evtier="${t}">${lab}</button>`).join("");
+  }
   $("dlgEvent").showModal();
 }
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button[data-evtier]");
+  if(t){
+    evTierSel = +t.dataset.evtier;
+    $("evTierBtns").querySelectorAll("button").forEach(b =>
+      b.classList.toggle("sel", +b.dataset.evtier === evTierSel));
+  }
+});
 $("btnEvCancel").onclick = () => $("dlgEvent").close();
 $("btnEvDelete").onclick = () => {
   if(evTarget){ HK.deleteEventById(state, evTarget.id); save(); renderTodayLog(); renderDayEditor(); }
@@ -595,8 +705,123 @@ $("btnEvSave").onclick = () => {
   if(!evTarget){ $("dlgEvent").close(); return; }
   // 論理日を保ったまま時刻を変更(0-3時台は同じ論理日の深夜として翌実日になる)
   const ld = HK.logicalDateIso(evTarget.t);
-  HK.updateEventTime(state, evTarget.id, HK.msFromLogicalDate(ld, m)); save();
-  renderTodayLog(); renderDayEditor(); $("dlgEvent").close(); toast("時間を修正しました");
+  HK.updateEventTime(state, evTarget.id, HK.msFromLogicalDate(ld, m));
+  if(evTarget.type === "MEAL" && evTierSel != null) HK.setEventTier(state, evTarget.id, evTierSel);
+  save();
+  renderTodayLog(); renderDayEditor(); $("dlgEvent").close(); toast("修正しました");
+};
+
+/* ================= まとめて記録(バッチ入力) ================= */
+let mealDraft = null; // {dayIso, slotMin, items:[{label,emoji,tier}], store}
+const MEAL_SLOTS = [["🌅 朝",360],["🌞 昼",720],["🌆 夕",1080],["🌙 夜",1260],["🌌 深夜",0]];
+function defaultSlotMin(){
+  const h = new Date().getHours();
+  if(h < 4) return 0;      // 深夜
+  if(h < 11) return 360;   // 朝
+  if(h < 15) return 720;   // 昼
+  if(h < 18) return 1080;  // 夕
+  return 1260;             // 夜
+}
+function openMealDialog(dayIso){
+  mealDraft = { dayIso: dayIso || lToday(), slotMin: defaultSlotMin(), items: [], store: null };
+  renderMealDialog();
+  $("dlgMeal").showModal();
+}
+function renderMealDialog(){
+  const d = mealDraft;
+  const days = [];
+  for(let i = 0; i < 5; i++){
+    const iso = HK.logicalDateIso(Date.now() - i * 86400000);
+    const dd = new Date(iso + "T12:00:00");
+    const lab = i === 0 ? "今日" : i === 1 ? "昨日" : i === 2 ? "一昨日"
+      : `${dd.getMonth()+1}/${dd.getDate()}`;
+    days.push(`<button type="button" class="${d.dayIso===iso?"sel":""}" data-mealday="${iso}">${lab}</button>`);
+  }
+  $("mealDayBtns").innerHTML = days.join("");
+  $("mealSlotBtns").innerHTML = MEAL_SLOTS.map(([lab,m]) =>
+    `<button type="button" class="${d.slotMin===m?"sel":""}" data-mealslot="${m}">${lab}</button>`).join("");
+  $("mealKindBtns").innerHTML = state.settings.mealKinds.map((k,idx) => {
+    const sel = d.items.some(it => it.label === k.label);
+    return `<button type="button" class="kind ${TIER_CLS[k.tier]||"kN"}${sel?" sel":""}" data-mealkind="${idx}">${k.emoji||"🍽"} ${esc(k.label)}</button>`;
+  }).join("");
+  if(d.items.length){
+    $("mealSelWrap").classList.remove("hidden");
+    $("mealSelected").innerHTML = d.items.map((it,i) =>
+      `<div class="selitem"><span class="nm">${it.emoji||"🍽"} ${esc(it.label)}</span>
+        <div class="miniseg">${[[1,"🟢"],[2,"🟡"],[3,"🔴"]].map(([t,mk]) =>
+          `<button type="button" class="${it.tier===t?"sel":""}" data-selitier="${i}:${t}">${mk}</button>`).join("")}</div>
+        <button type="button" class="rm" data-selrm="${i}" aria-label="削除">×</button></div>`).join("");
+  } else {
+    $("mealSelWrap").classList.add("hidden"); $("mealSelected").innerHTML = "";
+  }
+  $("mealStoreBtns").innerHTML = state.settings.mealChips.map(c =>
+    `<button type="button" class="${d.store===c?"sel":""}" data-mealstore="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("")
+    + (d.store ? `<button type="button" data-mealstore="" style="color:var(--muted)">店なし</button>` : "");
+}
+document.addEventListener("click", (e) => {
+  if(!mealDraft) return;
+  const dy = e.target.closest("button[data-mealday]");
+  if(dy){ mealDraft.dayIso = dy.dataset.mealday; renderMealDialog(); return; }
+  const sl = e.target.closest("button[data-mealslot]");
+  if(sl){ mealDraft.slotMin = +sl.dataset.mealslot; renderMealDialog(); return; }
+  const kd = e.target.closest("button[data-mealkind]");
+  if(kd){
+    const k = state.settings.mealKinds[+kd.dataset.mealkind];
+    const at = mealDraft.items.findIndex(it => it.label === k.label);
+    if(at >= 0) mealDraft.items.splice(at, 1);
+    else mealDraft.items.push({ label: k.label, emoji: k.emoji || "🍽", tier: k.tier || 2 });
+    renderMealDialog(); return;
+  }
+  const ti = e.target.closest("button[data-selitier]");
+  if(ti){ const [i,t] = ti.dataset.selitier.split(":"); mealDraft.items[+i].tier = +t; renderMealDialog(); return; }
+  const rm = e.target.closest("button[data-selrm]");
+  if(rm){ mealDraft.items.splice(+rm.dataset.selrm, 1); renderMealDialog(); return; }
+  const st = e.target.closest("button[data-mealstore]");
+  if(st){ mealDraft.store = st.dataset.mealstore || null; renderMealDialog(); return; }
+});
+$("btnMealCancel").onclick = () => { $("dlgMeal").close(); };
+$("btnMealSave").onclick = () => {
+  const d = mealDraft;
+  if(!d || !d.items.length){ toast("食べたものを選んでください"); return; }
+  const ms = d.dayIso === lToday() && d.slotMin === defaultSlotMin() ? Date.now() : HK.msFromLogicalDate(d.dayIso, d.slotMin);
+  const ids = [];
+  d.items.forEach(it => {
+    const id = HK.logEvent(state, "MEAL", it.label, ms, it.tier);
+    if(d.store) HK.setEventPlace(state, id, d.store);
+    ids.push(id);
+  });
+  save(); renderTodayLog(); renderDayEditor();
+  $("dlgMeal").close();
+  const n = ids.length;
+  toast(`${n}件を記録しました`, () => {
+    ids.forEach(id => HK.deleteEventById(state, id));
+    save(); renderTodayLog(); renderDayEditor();
+  });
+};
+
+/* 都度/まとめ 切替 と まとめ起動 */
+document.addEventListener("click", (e) => {
+  const lm = e.target.closest("button[data-logmode]");
+  if(lm){ state.settings.logMode = lm.dataset.logmode; save(); renderChips(); return; }
+  const ma = e.target.closest("#btnMealAdd");
+  if(ma){ openMealDialog(targetDate()); return; }
+});
+
+/* ================= FAB(全タブ右下) ================= */
+function renderFab(){
+  const fab = $("fab");
+  const h = new Date().getHours();
+  const night = (h >= 18 || h < 4) && state.pendingBed == null;
+  fab.textContent = night ? "🌙" : "＋";
+  fab.dataset.action = night ? "bed" : "meal";
+  fab.classList.remove("hidden");
+}
+$("fab").onclick = () => {
+  if($("fab").dataset.action === "bed"){
+    HK.markBed(state, Date.now()); save(); renderSleep(); renderFab(); toast("おやすみなさい。よい眠りを");
+  } else {
+    openMealDialog(targetDate());
+  }
 };
 
 /* ================= 週次レポート ================= */
@@ -850,8 +1075,24 @@ function renderAnalysis(){
 }
 
 /* ================= 設定 ================= */
-const CHIP_GROUPS = [["mealKinds","🍽 食事の種類"],["mealChips","🏪 食事の店"],["activityChips","🏃 運動の種類"]];
+const CHIP_GROUPS = [["mealChips","🏪 食事の店"],["activityChips","🏃 運動の種類"]];
 const TONE_DEFS = [["colleague","同僚"],["cheer","チア"],["analyst","アナリスト"]];
+let newKindTier = 2;
+function renderKindEditor(){
+  const marks = [[1,"🟢"],[2,"🟡"],[3,"🔴"]];
+  $("kindEditor").innerHTML = `<div class="field"><label>🍽 食事の種類(色=健康度)</label>
+    <div class="chiplist">${state.settings.mealKinds.map((k,i) =>
+      `<span class="chip ${TIER_CLS[k.tier]||"kN"}">
+        <button type="button" data-ktier="${i}" title="健康度を切替" style="color:var(--text);padding:0 6px 0 0">${TIER_MARK[k.tier]||"🟡"}</button>
+        ${k.emoji||"🍽"} ${esc(k.label)}
+        <button type="button" data-kdel="${i}" aria-label="${esc(k.label)}を削除">×</button></span>`).join("")}</div>
+    <input id="add-mealKinds" placeholder="種類を追加" maxlength="12">
+    <div style="display:flex; gap:8px; margin-top:6px; align-items:center">
+      <div class="miniseg" id="addKindTier">${marks.map(([t,m]) =>
+        `<button type="button" class="${newKindTier===t?"sel":""}" data-addktier="${t}">${m}</button>`).join("")}</div>
+      <button type="button" class="btn" data-kadd="1" style="flex:1">追加</button></div>
+    <p class="note">🟢🟡🔴タップで健康度を切替。追加時は左のマークで色を選択。</p></div>`;
+}
 function renderSettings(){
   $("inKey").value = state.settings.apiKey || "";
   $("inModel").value = state.settings.model || "";
@@ -859,6 +1100,7 @@ function renderSettings(){
   $("inProfile").value = state.settings.profile || "";
   $("toneSeg").innerHTML = TONE_DEFS.map(([k,lab]) =>
     `<button type="button" class="${(state.settings.tone||"colleague")===k?"sel":""}" data-tone="${k}">${lab}</button>`).join("");
+  renderKindEditor();
   $("chipEditors").innerHTML = CHIP_GROUPS.map(([key,title]) => `
     <div class="field"><label>${title}</label>
       <div class="chiplist">${state.settings[key].map((c,i) =>
@@ -870,6 +1112,29 @@ function renderSettings(){
 document.addEventListener("click", (e) => {
   const tn = e.target.closest("button[data-tone]");
   if(tn){ state.settings.tone = tn.dataset.tone; save(); renderSettings(); return; }
+  // 食事の種類エディタ
+  const ktier = e.target.closest("button[data-ktier]");
+  if(ktier){
+    const k = state.settings.mealKinds[+ktier.dataset.ktier];
+    k.tier = (k.tier % 3) + 1; save();
+    renderKindEditor(); renderChips(); return;
+  }
+  const kdel = e.target.closest("button[data-kdel]");
+  if(kdel){
+    state.settings.mealKinds.splice(+kdel.dataset.kdel, 1); save();
+    renderKindEditor(); renderChips(); return;
+  }
+  const kaddt = e.target.closest("button[data-addktier]");
+  if(kaddt){ newKindTier = +kaddt.dataset.addktier; renderKindEditor(); return; }
+  const kadd = e.target.closest("button[data-kadd]");
+  if(kadd){
+    const inp = $("add-mealKinds"), v = inp.value.trim();
+    if(v && !state.settings.mealKinds.some(k => k.label === v)){
+      state.settings.mealKinds.push({ label: v, emoji: HK.mealKindMeta(v).emoji, tier: newKindTier });
+      save(); renderKindEditor(); renderChips(); toast(`「${v}」を追加しました`);
+    } else if(v){ toast("同じ種類がすでにあります"); }
+    return;
+  }
   const del = e.target.closest("button[data-del]");
   if(del){
     const [key, i] = del.dataset.del.split(":");
@@ -955,7 +1220,7 @@ function renderAll(){
   const d = new Date(iso + "T12:00:00");
   const late = now.getHours() < 4 ? "(深夜)" : "";
   $("hDate").textContent = `${d.getMonth()+1}月${d.getDate()}日(${"月火水木金土日"[(d.getDay()+6)%7]})${late}`;
-  renderSleep(); renderCheckinHome(); renderChips(); renderTodayLog(); route();
+  renderSleep(); renderCheckinHome(); renderChips(); renderTodayLog(); renderFab(); route();
 }
 
 function handleWakeResult(r){

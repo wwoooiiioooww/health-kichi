@@ -25,8 +25,34 @@ HK.WAKE_WINDOW_START_HOUR = 4;
 HK.NIGHT_ACTIVE_FROM = 20;
 HK.DAY_START_HOUR = 4;          // 論理日の境界。朝4時より前は「前日」扱い
 
-// 食事の「種類」(MECE軸。tier=健康度と直交する「何系か」)
-HK.DEFAULT_MEAL_KINDS = ["定食・和食", "麺類", "丼・カレー", "バーガー・FF", "寿司・海鮮", "パン・軽食", "サラダ・野菜", "お菓子・間食"];
+// 食事の「種類」カタログ。tier(健康度 1=good/2=normal/3=junk)と絵文字を内蔵。
+// 「1品=1記録」方式: 1食で複数選ぶと同時刻に複数MEALとして記録される。
+HK.MEAL_KINDS = [
+  { label: "サラダ・野菜", emoji: "🥗", tier: 1 },
+  { label: "魚・海鮮", emoji: "🐟", tier: 1 },
+  { label: "寿司", emoji: "🍣", tier: 1 },
+  { label: "定食・和食", emoji: "🍚", tier: 2 },
+  { label: "麺類", emoji: "🍜", tier: 2 },
+  { label: "丼・カレー", emoji: "🍛", tier: 2 },
+  { label: "パン・軽食", emoji: "🍞", tier: 2 },
+  { label: "バーガー・FF", emoji: "🍔", tier: 3 },
+  { label: "揚げ物・スナック", emoji: "🍟", tier: 3 },
+  { label: "お菓子・デザート", emoji: "🍰", tier: 3 }
+];
+HK.DEFAULT_MEAL_KINDS = HK.MEAL_KINDS.map((o) => Object.assign({}, o));
+// 旧string配列(v5以前)を新object配列へ移行する際の絵文字/tier対応表(旧名も含む)
+HK.MEAL_KIND_LOOKUP = {
+  "サラダ・野菜": { emoji: "🥗", tier: 1 }, "魚・海鮮": { emoji: "🐟", tier: 1 },
+  "寿司": { emoji: "🍣", tier: 1 }, "寿司・海鮮": { emoji: "🍣", tier: 1 },
+  "定食・和食": { emoji: "🍚", tier: 2 }, "麺類": { emoji: "🍜", tier: 2 },
+  "丼・カレー": { emoji: "🍛", tier: 2 }, "パン・軽食": { emoji: "🍞", tier: 2 },
+  "バーガー・FF": { emoji: "🍔", tier: 3 }, "揚げ物・スナック": { emoji: "🍟", tier: 3 },
+  "お菓子・デザート": { emoji: "🍰", tier: 3 }, "お菓子・間食": { emoji: "🍰", tier: 3 }
+};
+// v5以前のmealKinds既定値(未編集判定用)
+HK.LEGACY_MEAL_KINDS_V5 = ["定食・和食", "麺類", "丼・カレー", "バーガー・FF", "寿司・海鮮", "パン・軽食", "サラダ・野菜", "お菓子・間食"];
+/** 種類名から{emoji,tier}を引く。未知は{🍽, 2} */
+HK.mealKindMeta = (name) => HK.MEAL_KIND_LOOKUP[name] || { emoji: "🍽", tier: 2 };
 // 食事の「店」(2026年時点の国内店舗数上位チェーンを網羅的に。設定で編集可)
 HK.DEFAULT_MEAL_CHIPS = ["自炊", "コンビニ", "マック", "モス", "KFC", "すき家", "吉野家", "松屋", "なか卯",
   "スシロー", "はま寿司", "くら寿司", "かっぱ寿司", "丸亀製麺", "日高屋", "餃子の王将", "かつや",
@@ -76,8 +102,8 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 5,
-  events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label, tier(MEALのみ1-3)}
+  version: 6,
+  events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label(=種類), tier(MEALのみ1-3), place(MEALの店・任意)}
   nextEventId: 1,
   sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
   checkin: {},         // 論理日 -> {mood?:1-5, focus?:1-4, irritation?:0-3}
@@ -86,10 +112,11 @@ HK.emptyState = () => ({
   settings: {
     apiKey: "",
     model: "",
-    mealKinds: HK.DEFAULT_MEAL_KINDS.slice(),
+    mealKinds: HK.DEFAULT_MEAL_KINDS.map((o) => Object.assign({}, o)), // [{label,emoji,tier}]
     mealChips: HK.DEFAULT_MEAL_CHIPS.slice(),
     coffeeChips: HK.DEFAULT_COFFEE_CHIPS.slice(),
     activityChips: HK.DEFAULT_ACTIVITY_CHIPS.slice(),
+    logMode: "batch",     // batch=まとめて記録 / quick=都度記録
     displayName: "",
     profile: "",          // 空ならHK.DEFAULT_PROFILEを使用
     tone: "colleague",    // colleague | cheer | analyst
@@ -125,7 +152,22 @@ HK.migrate = (s) => {
     s.settings.mealChips = HK.DEFAULT_MEAL_CHIPS.slice();
   if (eq(s.settings.activityChips, ["階段", "散歩"]))
     s.settings.activityChips = HK.DEFAULT_ACTIVITY_CHIPS.slice();
-  s.version = 5;
+  // mealKinds: v5以前は string[]。object[]{label,emoji,tier}へ移行(非破壊)。
+  if (Array.isArray(s.settings.mealKinds)) {
+    if (eq(s.settings.mealKinds, HK.LEGACY_MEAL_KINDS_V5)) {
+      // 未編集の旧既定 → 新カタログへ差し替え
+      s.settings.mealKinds = HK.DEFAULT_MEAL_KINDS.map((o) => Object.assign({}, o));
+    } else {
+      s.settings.mealKinds = s.settings.mealKinds.map((k) => {
+        if (typeof k === "string") {
+          const meta = HK.mealKindMeta(k);
+          return { label: k, emoji: meta.emoji, tier: meta.tier };
+        }
+        return { label: k.label, emoji: k.emoji || "🍽", tier: k.tier || 2 };
+      });
+    }
+  }
+  s.version = 6;
   return s;
 };
 
@@ -223,11 +265,27 @@ HK.updateEventTime = (state, id, newMs) => {
   return true;
 };
 
-/** 食事の店を後から設定(3段階タップ→店は任意、の2段目) */
+/** 食事の種類(label)を後から設定 */
 HK.setEventLabel = (state, id, label) => {
   const e = state.events.find((x) => x.id === id);
   if (!e) return false;
   e.label = label;
+  return true;
+};
+
+/** 食事の店(place)を後から設定。任意項目なので空なら null。 */
+HK.setEventPlace = (state, id, place) => {
+  const e = state.events.find((x) => x.id === id);
+  if (!e) return false;
+  e.place = place ? place : null;
+  return true;
+};
+
+/** 食事の健康度tier(1-3)を修正。MEALのみ。 */
+HK.setEventTier = (state, id, tier) => {
+  const e = state.events.find((x) => x.id === id);
+  if (!e || e.type !== "MEAL") return false;
+  e.tier = tier;
   return true;
 };
 
@@ -290,7 +348,7 @@ HK.buildDaySummaries = (state, endMs, nDays) => {
       kirokuNote: ck.kirokuNote ? String(ck.kirokuNote).slice(0, 80) : null,
       coffeeTimesHHmm: of("COFFEE").map((e) => HK.hhmm(e.t)),
       coffeePlaces: of("COFFEE").map((e) => e.label).filter(Boolean),
-      meals: meals.map((e) => ({ tier: e.tier || 2, place: e.label })),
+      meals: meals.map((e) => ({ tier: e.tier || 2, kind: e.label || null, place: e.place || null })),
       activityLabels: of("ACTIVITY").map((e) => e.label),
       noMeal: of("NO_MEAL").length > 0,
       mood: ck.mood != null ? ck.mood : null,
@@ -336,7 +394,8 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
       coffee_after_21: HK.countLateCoffee(allCoffee),
       coffee_place_counts: countBy([].concat(...days.map((d) => d.coffeePlaces))),
       meal_tier_counts: { good: tierCount(1), normal: tierCount(2), junk: tierCount(3) },
-      meal_label_counts: countBy(allMeals.map((m) => m.place)),
+      meal_kind_counts: countBy(allMeals.map((m) => m.kind)),
+      meal_place_counts: countBy(allMeals.map((m) => m.place)),
       activity_counts: countBy([].concat(...days.map((d) => d.activityLabels))),
       mood_avg: avgOrNull(days.map((d) => d.mood), true),
       focus_avg: avgOrNull(days.map((d) => d.focus), true),
@@ -347,7 +406,7 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
       date: d.dateIso, sleep_min: d.sleepDurationMin, sleep_quality: d.sleepQuality,
       bed: d.bedTimeHHmm, wake: d.wakeTimeHHmm,
       coffee: d.coffeeTimesHHmm, coffee_places: d.coffeePlaces,
-      meals: d.meals.map((m) => ({ tier: HK.MEAL_TIERS[m.tier], place: m.place })),
+      meals: d.meals.map((m) => ({ tier: HK.MEAL_TIERS[m.tier], kind: m.kind, place: m.place })),
       activities: d.activityLabels, no_meal: d.noMeal,
       mood: d.mood, focus: d.focus, irritation: d.irritation, exercise: d.exercise,
       note: d.note, kiroku_note: d.kirokuNote
@@ -389,7 +448,8 @@ HK.DEFAULT_PROFILE = [
   "- 健診結果は良好。酒・タバコなし。体型は普通。",
   "- 食事は夜1食か夕方+夜の2食。朝昼は空腹にならず、食べると眠くなるため食べない。",
   "  これは本人の選択であり尊重する。矯正提案は禁止。",
-  "- 食事内容は3段階で記録: good(魚・野菜など体に良い)/normal/junk(ファストフード等)。店は任意記録。",
+  "- 食事は「1品=1記録」。各品に種類(kind: 魚/サラダ/麺類/デザート等)と健康度(tier: good/normal/junk)が付く。",
+  "  1食で複数品を選ぶことがある(例: 魚=good, ごはん=normal, デザート=junk)。店(place)は任意記録。",
   "  goodが増えていたら素直に認めてよい。junkを責めない。",
   "- コーヒーは「21時以降に飲んだか」のみ記録する方式(日中の摂取は毎日ほぼ一定のため)。",
   "  21時以降のカフェインが睡眠を阻害する自覚あり。",
