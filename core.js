@@ -680,10 +680,10 @@ HK.parseGeminiResponse = (respJson) => {
 // ---------------- 健康診断の読み取り(Gemini Vision) ----------------
 
 HK.buildHealthCheckPrompt = () => [
-  "あなたは健康診断結果を読み取るアシスタントです。画像から要点だけを日本語で抽出し、JSONで返します。",
+  "あなたは健康診断結果を読み取るアシスタントです。入力(画像またはテキスト)から要点だけを日本語で抽出し、JSONで返します。",
   "",
   "# ルール",
-  "- 画像から読み取れる事実のみを出力する。読めない/不確かな値は出さない(推測で埋めない)。",
+  "- 入力から読み取れる事実のみを出力する。読めない/不確かな値は出さない(推測で埋めない)。",
   "- 医療診断や治療の指示はしない。所見の要約に留める。",
   "- 氏名・住所・ID等の個人特定情報は summary/facts に含めない。",
   "- 基準値から外れている項目を優先して要約する。",
@@ -705,6 +705,16 @@ HK.buildHealthCheckRequestBody = (base64, mimeType) => ({
     ]
   }],
   // 思考型モデルは思考にもトークンを使うため上限を大きめに確保する
+  generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 4096 }
+});
+
+/** 健診結果テキストから要点を抽出するリクエスト(画像を使わない・センシティブ回避向け) */
+HK.buildHealthCheckTextRequestBody = (text) => ({
+  systemInstruction: { parts: [{ text: HK.buildHealthCheckPrompt() }] },
+  contents: [{
+    role: "user",
+    parts: [{ text: "以下の健康診断結果のテキストから要点を抽出してください。\n\n" + String(text || "") }]
+  }],
   generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 4096 }
 });
 

@@ -316,12 +316,19 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <p class="note">AIレポートに背景として渡されます。🤖はAIが健診などから抽出した項目です。すべて端末内に保存されます。</p>
     </div>
     <div class="card">
-      <h2>健康診断の読み込み(AI解析)</h2>
+      <h2>健康診断の記録</h2>
       <div id="hcList"></div>
+      <div class="subh">📝 テキストで入力</div>
+      <textarea id="hcText" rows="3" maxlength="1500" placeholder="健診結果を貼り付け/入力 例: HbA1c 5.8 / 血圧 140/90 / LDL 145 / γ-GTP 60" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%"></textarea>
+      <div class="row2" style="margin-top:8px">
+        <button class="btn" id="btnHcTextSave">そのまま保存</button>
+        <button class="btn primary" id="btnHcTextAI" style="flex:1">🤖 AIで整理して保存</button>
+      </div>
+      <div class="subh">📷 画像で入力(任意)</div>
       <input type="file" id="hcFile" accept="image/*" class="hidden">
-      <button class="btn" id="btnHcPick" style="margin-top:6px">📷 健診結果の画像を選ぶ</button>
+      <button class="btn" id="btnHcPick">健診結果の画像を選ぶ</button>
       <div id="hcStage"></div>
-      <p class="note">画像は<b>端末内(IndexedDB)にのみ</b>保存され、エクスポートJSONには含まれません。「解析」を押したときだけ画像がGoogle(Gemini)に送信されます。要APIキー。</p>
+      <p class="note">テキストを「そのまま保存」なら<b>外部送信はありません</b>。「🤖 AIで整理」または画像「解析」を押したときだけGoogle(Gemini)に送信されます。画像は<b>端末内(IndexedDB)のみ</b>でエクスポートJSONには含まれません。AI利用は要APIキー。</p>
     </div>
     <div class="card">
       <h2>データ</h2>
@@ -1200,6 +1207,38 @@ function clearHcStage(){
   hcPendingFile = null; hcResult = null; $("hcStage").innerHTML = "";
 }
 $("btnHcPick").onclick = () => $("hcFile").click();
+// テキスト入力: そのまま保存(外部送信なし)
+$("btnHcTextSave").onclick = () => {
+  const t = $("hcText").value.trim();
+  if(!t){ toast("健診結果を入力してください"); return; }
+  HK.addHealthCheck(state, { dateIso: lToday(), summary: t, values: null, imageId: null });
+  save(); $("hcText").value = ""; renderHealthChecks();
+  toast("健診結果を保存しました");
+};
+// テキスト入力: AIで整理して保存(Geminiにテキスト送信)
+async function analyzeHealthCheckText(){
+  const t = $("hcText").value.trim();
+  if(!t){ toast("健診結果を入力してください"); return; }
+  if(!state.settings.apiKey){ toast("設定でGemini APIキーを登録してください"); return; }
+  hcPendingFile = null; // テキスト経路は画像なし
+  renderHcStage("loading");
+  try{
+    const model = HK.resolveModel(state.settings);
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { method:"POST",
+        headers:{ "Content-Type":"application/json", "x-goog-api-key":state.settings.apiKey },
+        body: JSON.stringify(HK.buildHealthCheckTextRequestBody(t)) });
+    const bodyText = await resp.text();
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${bodyText.slice(0,600)}`);
+    const parsed = HK.parseHealthCheckResponse(JSON.parse(bodyText));
+    if(parsed.error) throw new Error(parsed.error + "\n" + (parsed.detail||"") + "\n応答: " + bodyText.slice(0,400));
+    hcResult = parsed.result; renderHcStage("review");
+  }catch(e){
+    renderHcStage("error", String(e && e.message || e));
+  }
+}
+$("btnHcTextAI").onclick = analyzeHealthCheckText;
 $("hcFile").onchange = (e) => {
   const f = e.target.files[0]; e.target.value = "";
   if(!f) return;
@@ -1266,12 +1305,15 @@ async function saveHealthCheck(){
   const date = $("hcDate").value.trim() || lToday();
   if(!summary){ toast("要約を入力してください"); return; }
   let imageId = null;
-  try{ imageId = "hc-" + HK.uid(); await idbPut(imageId, hcPendingFile); }
-  catch(e){ imageId = null; toast("画像の保存に失敗(要約のみ保存します)"); }
+  if(hcPendingFile){ // 画像経路のみ端末内保存。テキスト経路は画像なし。
+    try{ imageId = "hc-" + HK.uid(); await idbPut(imageId, hcPendingFile); }
+    catch(e){ imageId = null; toast("画像の保存に失敗(要約のみ保存します)"); }
+  }
   HK.addHealthCheck(state, { dateIso: date, summary, values: hcResult ? hcResult.values : null, imageId });
   if($("hcAddFacts") && $("hcAddFacts").checked && hcResult && hcResult.facts)
     hcResult.facts.forEach(f => HK.addFact(state, f, "ai"));
   save(); clearHcStage();
+  if($("hcText")) $("hcText").value = "";
   renderHealthChecks(); renderPersonalContext();
   toast("健診結果を保存しました");
 }

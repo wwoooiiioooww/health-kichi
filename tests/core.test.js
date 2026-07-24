@@ -407,6 +407,15 @@ test("buildHealthCheckRequestBody: mime未指定はjpegに解決", () => {
   const body = HK.buildHealthCheckRequestBody("QUJD");
   assertEq(body.contents[0].parts[0].inlineData.mimeType, "image/jpeg");
 });
+test("buildHealthCheckTextRequestBody: テキストをそのまま送る(画像なし)", () => {
+  const body = HK.buildHealthCheckTextRequestBody("HbA1c 5.8 / 血圧 140/90");
+  const parts = body.contents[0].parts;
+  assertEq(parts.length, 1, "inlineDataは含めない");
+  assert(parts[0].text.includes("HbA1c 5.8"), "入力テキストを含む");
+  assert(!parts[0].inlineData, "画像は送らない");
+  assertEq(body.generationConfig.maxOutputTokens, 4096);
+  assert(body.systemInstruction.parts[0].text.includes("健康診断"));
+});
 test("parseHealthCheckResponse: 正常(コードフェンス/思考パーツ除去)", () => {
   const resp = { candidates: [{ content: { parts: [
     { text: "考え中", thought: true },
