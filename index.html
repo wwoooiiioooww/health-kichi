@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ヘルスきち</title>
-<meta name="theme-color" content="#0D131F">
+<meta name="theme-color" content="#0B111C">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -16,203 +16,225 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
 :root{
-  --bg:#0D131F; --surface:#171F2E; --surface2:#212D42; --line:#2A3850;
-  --text:#E9EDF5; --muted:#8B96AB;
+  --bg:#0B111C; --surface:#151D2C; --surface2:#202B40; --line:#2A3850; --line-soft:#222E44;
+  --text:#EAEEF6; --muted:#8792A8; --faint:#525E77;
   --moon:#A8C6EE; --amber:#E0A458; --good:#7FC8A9; --bad:#D98B8B;
-  --radius:16px;
+  --ink:#0E1524;
+  --radius:18px; --r-ctl:11px;
+  --shadow-card:0 1px 2px rgba(0,0,0,.2), 0 10px 28px -20px rgba(0,0,0,.55);
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
 html,body{margin:0; padding:0; background:var(--bg); color:var(--text);
   font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI",system-ui,sans-serif;
-  font-size:16px; line-height:1.6}
+  font-size:16px; line-height:1.55; -webkit-font-smoothing:antialiased}
 body{padding-bottom:76px; max-width:560px; margin:0 auto}
 h1,h2,h3{margin:0; font-weight:700}
-button{font-family:inherit; border:none; cursor:pointer; color:inherit; background:none}
-input{font-family:inherit; font-size:16px; color:var(--text);
-  background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%}
+::selection{background:rgba(168,198,238,.28)}
+button{font-family:inherit; border:none; cursor:pointer; color:inherit; background:none;
+  transition:background-color .15s, border-color .15s, color .15s, opacity .15s, filter .15s, transform .06s}
+input,textarea{font-family:inherit}
+input{font-size:16px; color:var(--text);
+  background:var(--surface2); border:1px solid var(--line-soft); border-radius:var(--r-ctl); padding:10px 12px; width:100%;
+  transition:border-color .15s}
 input:focus,button:focus-visible{outline:2px solid var(--moon); outline-offset:2px}
-input::placeholder{color:#4E5A73; font-style:italic}
-.dial{cursor:pointer}
+input::placeholder,textarea::placeholder{color:var(--faint); font-style:normal}
+.dial{cursor:pointer; overflow:visible} /* 目盛り文字(18等)がviewBox端で切れないように */
 
-header{display:flex; align-items:baseline; justify-content:space-between; padding:20px 20px 8px}
-header .date{font-size:22px; font-weight:700}
-header .app{font-size:12px; color:var(--muted); letter-spacing:.14em}
+header{display:flex; align-items:baseline; justify-content:space-between; padding:22px 20px 6px}
+header .date{font-size:21px; font-weight:800; letter-spacing:-.01em}
+header .app{font-size:11px; color:var(--muted); letter-spacing:.22em; font-weight:600}
 
 main{padding:0 16px}
-.card{background:var(--surface); border-radius:var(--radius); padding:18px; margin:12px 0; border:1px solid var(--line)}
-.card h2{font-size:13px; color:var(--muted); font-weight:600; letter-spacing:.1em; margin-bottom:12px}
+.card{background:var(--surface); border-radius:var(--radius); padding:16px; margin:10px 0;
+  border:1px solid var(--line-soft); box-shadow:var(--shadow-card)}
+.card h2{font-size:11px; color:var(--muted); font-weight:700; letter-spacing:.14em; margin-bottom:12px}
 .note{font-size:12px; color:var(--muted)}
 
 /* 睡眠ダイヤル */
 .sleep-body{display:flex; align-items:center; gap:18px}
 .dial{flex:0 0 116px}
-.sleep-info .dur{font-size:34px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.2}
-.sleep-info .dur small{font-size:16px; font-weight:600; color:var(--muted)}
-.sleep-info .times{color:var(--muted); font-size:14px; margin-top:4px; font-variant-numeric:tabular-nums}
-.sleep-info .src{font-size:12px; color:var(--muted); margin-top:6px}
-.btn-ghost{color:var(--moon); font-size:14px; padding:6px 0}
-.btn-big{display:block; width:100%; padding:15px; border-radius:14px; font-size:17px; font-weight:700;
-  background:linear-gradient(140deg,#26344E,#1B2740); color:var(--moon); border:1px solid var(--line); margin-top:10px}
-.btn-big:active{transform:scale(.98)}
+.sleep-info .dur{font-size:31px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.2; letter-spacing:-.02em}
+.sleep-info .dur small{font-size:14px; font-weight:600; color:var(--muted)}
+.sleep-info .times{color:var(--muted); font-size:13.5px; margin-top:4px; font-variant-numeric:tabular-nums}
+.sleep-info .src{font-size:11.5px; color:var(--faint); margin-top:6px}
+.btn-ghost{color:var(--moon); font-size:13.5px; padding:6px 0; font-weight:600}
+.btn-big{display:block; width:100%; padding:14px; border-radius:13px; font-size:16px; font-weight:700;
+  background:linear-gradient(140deg,#243350,#19233C); color:var(--moon); border:1px solid var(--line);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05); margin-top:10px}
+.btn-big:active{transform:scale(.985)}
 .pending{display:flex; justify-content:space-between; align-items:center}
 .pending .label{color:var(--moon); font-weight:700}
 
 /* チェックイン・セグメント */
-.ckrow{display:flex; align-items:center; gap:8px; margin:9px 0}
-.ckrow .lbl{flex:0 0 66px; font-size:13px; color:var(--muted)}
+.ckrow{display:flex; align-items:center; gap:8px; margin:8px 0}
+.ckrow .lbl{flex:0 0 62px; font-size:12.5px; color:var(--muted)}
 .seg{display:flex; gap:6px; flex:1}
-.seg button{flex:1; padding:9px 0; background:var(--surface2); border:1px solid var(--line);
-  border-radius:10px; font-size:13px; font-weight:600}
-.seg button.emoji{font-size:19px; padding:6px 0}
-.seg button.sel{background:var(--moon); color:#101828; border-color:var(--moon)}
+.seg button{flex:1; padding:8px 0; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:10px; font-size:12.5px; font-weight:600}
+.seg button.emoji{font-size:17px; padding:5px 0}
+.seg button.sel{background:var(--moon); color:var(--ink); border-color:var(--moon)}
 .seg button:active{transform:scale(.94)}
 
 /* クイックログ */
-.subh{font-size:12px; color:var(--muted); margin:14px 0 6px; letter-spacing:.06em}
+.subh{font-size:11.5px; color:var(--muted); margin:14px 0 7px; letter-spacing:.08em; font-weight:600}
 .subh:first-of-type{margin-top:0}
-.chips{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+.chips{display:grid; grid-template-columns:repeat(4,1fr); gap:7px}
 .chips.g3{grid-template-columns:repeat(3,1fr)}
-.chips button{padding:12px 4px; background:var(--surface2); border-radius:12px; font-size:14px;
-  font-weight:600; border:1px solid var(--line)}
-.chips button:active{background:var(--amber); color:#20160A; transform:scale(.95)}
+.chips button{padding:10px 4px; background:var(--surface2); border-radius:var(--r-ctl); font-size:13px;
+  font-weight:600; border:1px solid var(--line-soft)}
+.chips button:active{transform:scale(.96); filter:brightness(1.3)}
 .chips .no-meal{grid-column:1/-1; color:var(--muted); font-weight:500; padding:9px}
-.tier button{font-size:14px; padding:14px 4px}
+.tier button{font-size:13px; padding:12px 4px}
 .tG{border-color:#3E6B54!important} .tN{border-color:#6B5B3E!important} .tJ{border-color:#6B3E3E!important}
-.placerow{margin-top:8px; background:var(--surface2); border-radius:12px; padding:10px}
-.placerow .q{font-size:12px; color:var(--muted); margin-bottom:8px}
+.placerow{margin-top:8px; background:var(--surface2); border-radius:13px; padding:10px}
+.placerow .q{font-size:11.5px; color:var(--muted); margin-bottom:8px}
+.placerow .chips button{background:var(--surface)}
 
 /* ログ */
 .log{list-style:none; margin:0; padding:0}
-.log li{display:flex; gap:12px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px}
+.log li{display:flex; gap:12px; padding:8px 0; border-bottom:1px solid var(--line-soft); font-size:13.5px}
 .log li:last-child{border-bottom:none}
-.log time{color:var(--muted); font-variant-numeric:tabular-nums; flex:0 0 46px}
+.log time{color:var(--muted); font-variant-numeric:tabular-nums; flex:0 0 44px}
 .log .empty{color:var(--muted); border:none}
-.tierdot{margin-left:auto; font-size:11px; color:var(--muted)}
+.tierdot{margin-left:auto; font-size:10px; color:var(--muted)}
 
 /* レポート */
-.report .summary{font-size:15px}
-.report ul{margin:10px 0; padding-left:18px; font-size:14px; color:var(--muted)}
-.exp{background:var(--surface2); border-radius:12px; padding:12px 14px; margin-top:10px; border-left:3px solid var(--amber)}
-.exp .t{font-weight:700; color:var(--amber); font-size:14px}
-.exp .a{font-size:15px; margin-top:2px}
-.exp .w{font-size:13px; color:var(--muted); margin-top:4px}
-.oneliner{margin-top:12px; font-size:14px; color:var(--moon)}
-.review{margin-top:10px; font-size:13px; color:var(--muted)}
-.gen-note{font-size:13px; color:var(--muted); margin-top:8px}
-.statrow{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px}
-.statrow span{background:var(--surface2); border:1px solid var(--line); border-radius:999px;
-  padding:5px 12px; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums}
+.report .summary{font-size:14.5px}
+.report ul{margin:10px 0; padding-left:18px; font-size:13.5px; color:var(--muted)}
+.exp{background:var(--surface2); border-radius:13px; padding:12px 14px; margin-top:10px; border-left:3px solid var(--amber)}
+.exp .t{font-weight:700; color:var(--amber); font-size:13.5px}
+.exp .a{font-size:14.5px; margin-top:2px}
+.exp .w{font-size:12.5px; color:var(--muted); margin-top:4px}
+.oneliner{margin-top:12px; font-size:13.5px; color:var(--moon)}
+.review{margin-top:10px; font-size:12.5px; color:var(--muted)}
+.gen-note{font-size:12.5px; color:var(--muted); margin-top:8px}
+.statrow{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px}
+.statrow span{background:var(--surface2); border:1px solid var(--line-soft); border-radius:999px;
+  padding:4px 11px; font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums}
 .statrow small{color:var(--muted); font-weight:500}
-details.rephist{border-bottom:1px solid var(--line); padding:10px 0; font-size:14px}
-details.rephist summary{cursor:pointer; color:var(--muted)}
+details.rephist{border-bottom:1px solid var(--line-soft); padding:10px 0; font-size:13.5px}
+details.rephist summary{cursor:pointer; color:var(--muted); transition:color .15s}
+details.rephist summary:hover{color:var(--text)}
 details.rephist summary b{color:var(--text)}
 details.err{margin-top:8px; font-size:12px; color:var(--bad)}
 details.err pre{white-space:pre-wrap; word-break:break-all; background:var(--surface2); padding:8px; border-radius:8px; color:var(--muted)}
 
 /* 履歴 */
 .daystrip{display:flex; gap:6px; margin-bottom:12px}
-.daystrip button{flex:1; padding:8px 0; background:var(--surface2); border:1px solid var(--line);
-  border-radius:10px; font-size:12px; font-weight:600; line-height:1.3}
-.daystrip button.sel{background:var(--moon); color:#101828}
+.daystrip button{flex:1; padding:7px 0; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:10px; font-size:11.5px; font-weight:600; line-height:1.35}
+.daystrip button.sel{background:var(--moon); color:var(--ink); border-color:var(--moon)}
 .chart{width:100%; margin-top:6px}
-.chart text{fill:var(--muted); font-size:10px}
-.legend{font-size:12px; color:var(--muted); margin-top:2px}
+.chart text{fill:var(--muted); font-size:9.5px}
+.legend{font-size:11.5px; color:var(--faint); margin-top:2px}
 
 /* 設定 */
 .field{margin:14px 0}
-.field label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+.field label{display:block; font-size:12.5px; color:var(--muted); margin-bottom:6px}
 .timepick{display:flex; gap:8px; align-items:center}
-.timepick select{flex:1; font-family:inherit; font-size:20px; font-weight:700; text-align:center;
-  color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px;
+.timepick select{flex:1; font-family:inherit; font-size:19px; font-weight:700; text-align:center;
+  color:var(--text); background:var(--surface2); border:1px solid var(--line-soft); border-radius:var(--r-ctl);
   padding:10px 4px; font-variant-numeric:tabular-nums; appearance:none; -webkit-appearance:none}
-.timepick .colon{font-size:20px; font-weight:700; color:var(--muted)}
+.timepick .colon{font-size:19px; font-weight:700; color:var(--muted)}
 .row2{display:flex; gap:8px}
-.btn{padding:11px 16px; border-radius:10px; background:var(--surface2); border:1px solid var(--line); font-weight:600; font-size:14px}
-.btn.primary{background:var(--moon); color:#101828}
-.btn.danger{color:var(--bad); border-color:var(--bad)}
+.btn{padding:10px 16px; border-radius:var(--r-ctl); background:var(--surface2); border:1px solid var(--line-soft); font-weight:600; font-size:13.5px}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--moon); color:var(--ink); border-color:var(--moon); font-weight:700}
+.btn.danger{color:var(--bad); border-color:rgba(217,139,139,.45)}
 .chiplist{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px}
-.chiplist .chip{background:var(--surface2); border:1px solid var(--line); border-radius:999px;
-  padding:4px 4px 4px 12px; font-size:13px; display:inline-flex; gap:2px; align-items:center}
-.chiplist .chip button{color:var(--bad); font-weight:700; padding:0 8px; font-size:15px}
+.chiplist .chip{background:var(--surface2); border:1px solid var(--line-soft); border-radius:999px;
+  padding:4px 4px 4px 12px; font-size:12.5px; display:inline-flex; gap:2px; align-items:center}
+.chiplist .chip button{color:var(--bad); font-weight:700; padding:0 8px; font-size:14px}
 
 /* ナビ/トースト/ダイアログ */
 nav{position:fixed; bottom:0; left:0; right:0; max-width:560px; margin:0 auto; display:flex;
-  background:rgba(23,31,46,.96); backdrop-filter:blur(8px); border-top:1px solid var(--line);
+  background:rgba(15,21,34,.92); backdrop-filter:blur(12px); border-top:1px solid var(--line-soft);
   padding-bottom:env(safe-area-inset-bottom)}
-nav a{flex:1; text-align:center; padding:12px 0 10px; color:var(--muted); text-decoration:none; font-size:12px}
-nav a .ic{display:block; font-size:20px}
+nav a{flex:1; text-align:center; padding:10px 0 9px; color:var(--faint); text-decoration:none;
+  font-size:10px; font-weight:600; letter-spacing:.06em; transition:color .15s}
+nav a .ic{display:block; font-size:18px; margin-bottom:2px; filter:grayscale(1) opacity(.55); transition:filter .15s}
 nav a.on{color:var(--moon)}
+nav a.on .ic{filter:none}
 #toast{position:fixed; bottom:86px; left:50%; transform:translateX(-50%); background:var(--surface2);
-  border:1px solid var(--line); border-radius:12px; padding:10px 16px; font-size:14px;
-  display:none; align-items:center; gap:14px; white-space:nowrap; z-index:10; box-shadow:0 6px 24px rgba(0,0,0,.4)}
+  border:1px solid var(--line); border-radius:13px; padding:10px 16px; font-size:13.5px;
+  display:none; align-items:center; gap:14px; white-space:nowrap; z-index:10; box-shadow:0 10px 32px rgba(0,0,0,.5)}
 #toast button{color:var(--amber); font-weight:700}
 dialog{background:var(--surface); color:var(--text); border:1px solid var(--line);
-  border-radius:var(--radius); padding:20px; width:min(92vw,380px)}
-dialog::backdrop{background:rgba(0,0,0,.6)}
+  border-radius:var(--radius); padding:20px; width:min(92vw,380px);
+  box-shadow:0 24px 64px -16px rgba(0,0,0,.6)}
+dialog[open]{animation:dlgin .18s ease-out}
+@keyframes dlgin{from{opacity:0; transform:translateY(8px) scale(.98)}}
+dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
 .hidden{display:none!important}
 
 /* きろく: まとめ入力・食事の種類 */
-.btn-meal-add{display:block; width:100%; padding:15px; border-radius:12px; font-size:16px; font-weight:700;
-  background:linear-gradient(140deg,#26344E,#1B2740); color:var(--moon); border:1px solid var(--line)}
-.btn-meal-add:active{transform:scale(.98)}
-.chip-nomeal{width:100%; padding:11px; background:var(--surface2); border:1px solid var(--line);
-  border-radius:12px; font-size:14px; font-weight:600; color:var(--text)}
-.chip-nomeal:active{background:var(--surface); transform:scale(.98)}
-.kind{font-size:13px; padding:11px 4px; font-weight:600}
-.kG{border-color:#3E6B54!important; background:#17251E!important}
-.kN{border-color:#6B5B3E!important; background:#251F16!important}
-.kJ{border-color:#6B3E3E!important; background:#251818!important}
+.btn-meal-add{display:block; width:100%; padding:14px; border-radius:13px; font-size:15.5px; font-weight:700;
+  background:linear-gradient(140deg,#243350,#19233C); color:var(--moon); border:1px solid var(--line);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.btn-meal-add:active{transform:scale(.985)}
+.chip-nomeal{width:100%; padding:10px; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:var(--r-ctl); font-size:13px; font-weight:600; color:var(--muted)}
+.chip-nomeal:active{transform:scale(.985); filter:brightness(1.3)}
+.kind{font-size:12.5px; padding:10px 4px; font-weight:600}
+.kG{border-color:#37604C!important; background:#152420!important}
+.kN{border-color:#5E5138!important; background:#221E14!important}
+.kJ{border-color:#5E3A3A!important; background:#221616!important}
 .kind.sel{outline:2px solid var(--moon); outline-offset:1px}
-.chips button.sel:not(.kind){background:var(--moon); color:#101828; border-color:var(--moon)}
-.selitem{display:flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--line);
-  border-radius:10px; padding:6px 8px; margin:6px 0}
-.selitem .nm{flex:1; font-size:14px; font-weight:600}
+.chips button.sel:not(.kind){background:var(--moon); color:var(--ink); border-color:var(--moon)}
+.selitem{display:flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:var(--r-ctl); padding:6px 8px; margin:6px 0}
+.selitem .nm{flex:1; font-size:13.5px; font-weight:600}
 .miniseg{display:flex; gap:4px}
-.miniseg button{padding:5px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); font-size:14px; line-height:1}
-.miniseg button.sel{outline:2px solid var(--moon); outline-offset:1px}
-.selitem .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
+.miniseg button{padding:5px 8px; border:1px solid var(--line-soft); border-radius:8px; background:var(--bg);
+  font-size:13px; line-height:1; opacity:.45}
+.miniseg button.sel{outline:2px solid var(--moon); outline-offset:1px; opacity:1}
+.selitem .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:16px}
 .evtier{margin:12px 0 2px}
 
 /* 体調 / Personal Context */
-.btn-cond{display:block; width:100%; padding:12px; border-radius:12px; background:var(--surface2);
-  border:1px solid var(--line); font-weight:600; font-size:14px; color:var(--text); margin-top:8px}
-.btn-cond:active{transform:scale(.98)}
+.btn-cond{display:block; width:100%; padding:11px; border-radius:var(--r-ctl); background:var(--surface2);
+  border:1px solid var(--line-soft); font-weight:600; font-size:13.5px; color:var(--text); margin-top:8px}
+.btn-cond:active{transform:scale(.985); filter:brightness(1.3)}
 .condlist{display:flex; flex-direction:column; gap:6px; margin-bottom:2px}
 .condchip{display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
-  padding:10px 12px; background:var(--surface2); border:1px solid var(--amber); border-radius:12px;
-  font-weight:600; font-size:14px; color:var(--text)}
-.condchip small{color:var(--muted); font-weight:400}
-.condchip .done{color:var(--good); font-weight:700; white-space:nowrap}
+  padding:10px 12px; background:var(--surface2);
+  border:1px solid rgba(224,164,88,.5); border-radius:13px;
+  font-weight:600; font-size:13.5px; color:var(--text)}
+.condchip small{color:var(--muted); font-weight:400; font-variant-numeric:tabular-nums}
+.condchip .done{color:var(--good); font-weight:700; white-space:nowrap; font-size:12.5px}
 .pcrow{display:flex; align-items:center; gap:6px; margin:6px 0}
-.pcrow input{flex:1}
-.pcbadge{font-size:15px}
-.pcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
-.hcrow{display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid var(--line)}
+.pcrow input{flex:1; font-size:13.5px; padding:8px 11px}
+.pcbadge{font-size:14px}
+.pcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:16px}
+.hcrow{display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid var(--line-soft)}
 .hcrow:last-of-type{border-bottom:none}
-.hcrow .body{flex:1; min-width:0}
-.hcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
+.hcrow .body{flex:1; min-width:0; font-size:13.5px}
+.hcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:16px}
 .hcprev{margin:8px 0}
-.hcprev img{max-width:100%; max-height:200px; border-radius:10px; border:1px solid var(--line)}
-.hcconsent{color:var(--amber); font-size:13px; margin:8px 0}
-.hccheck{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-top:6px}
+.hcprev img{max-width:100%; max-height:200px; border-radius:12px; border:1px solid var(--line)}
+.hcconsent{color:var(--amber); font-size:12.5px; margin:8px 0}
+.hccheck{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); margin-top:6px}
 .hccheck input{width:auto}
 
 /* 計画: 週次目標 */
-.goalrow{margin:12px 0}
-.goalhead{font-size:13px; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; gap:6px}
-.goalhead small{color:var(--muted); font-weight:400}
-.goalprog{margin-left:auto; font-size:13px; font-weight:700; color:var(--muted)}
+.goalrow{margin:13px 0}
+.goalrow:first-of-type{margin-top:4px}
+.goalhead{font-size:12.5px; color:var(--muted); margin-bottom:7px; display:flex; align-items:center; gap:6px; font-weight:600}
+.goalhead small{color:var(--faint); font-weight:400; font-size:11px}
+.goalprog{margin-left:auto; font-size:12.5px; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums}
 .goalprog.met{color:var(--good)}
-.goalopts{display:flex; flex-wrap:wrap; gap:6px}
-.goalopt{padding:8px 12px; background:var(--surface2); border:1px solid var(--line); border-radius:999px;
-  font-size:13px; font-weight:600}
-.goalopt.sel{background:var(--moon); color:#101828; border-color:var(--moon)}
-.goalopt:active{transform:scale(.95)}
+/* auto-fitで択数に応じ常に1行等分(6択も4択も孤立改行しない) */
+.goalopts{display:grid; grid-template-columns:repeat(auto-fit,minmax(46px,1fr)); gap:6px}
+.goalopt{padding:8px 2px; text-align:center; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:999px; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap}
+.goalopt.sel{background:var(--moon); color:var(--ink); border-color:var(--moon); font-weight:700}
+.goalopt:active{transform:scale(.94)}
 
 /* FAB(全タブ右下) */
-.fab{position:fixed; right:16px; bottom:calc(84px + env(safe-area-inset-bottom)); width:56px; height:56px;
-  border-radius:50%; background:var(--moon); color:#101828; font-size:26px; font-weight:700;
-  box-shadow:0 6px 20px rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:9}
+.fab{position:fixed; right:16px; bottom:calc(82px + env(safe-area-inset-bottom)); width:54px; height:54px;
+  border-radius:50%; background:linear-gradient(150deg,#C2D8F5,#8FB4E4); color:var(--ink); font-size:24px; font-weight:700;
+  box-shadow:0 10px 24px -6px rgba(100,145,205,.5), 0 3px 8px rgba(0,0,0,.35);
+  display:flex; align-items:center; justify-content:center; z-index:9}
 .fab:active{transform:scale(.92)}
 
 .spin{display:inline-block; animation:spin 1s linear infinite}
