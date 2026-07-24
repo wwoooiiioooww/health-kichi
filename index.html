@@ -4,146 +4,239 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ヘルスきち</title>
-<meta name="theme-color" content="#0D131F">
+<meta name="theme-color" content="#0B111C">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- フォントは非レンダーブロッキングで読み込む(遅い/失敗しても本体の描画を止めない。読めたらNoto Sans JPに差し替わる) -->
+<link rel="stylesheet" media="print" onload="this.media='all'"
+  href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
 :root{
-  --bg:#0D131F; --surface:#171F2E; --surface2:#212D42; --line:#2A3850;
-  --text:#E9EDF5; --muted:#8B96AB;
+  --bg:#0B111C; --surface:#151D2C; --surface2:#202B40; --line:#2A3850; --line-soft:#222E44;
+  --text:#EAEEF6; --muted:#8792A8; --faint:#525E77;
   --moon:#A8C6EE; --amber:#E0A458; --good:#7FC8A9; --bad:#D98B8B;
-  --radius:16px;
+  --ink:#0E1524;
+  --radius:18px; --r-ctl:11px;
+  --shadow-card:0 1px 2px rgba(0,0,0,.2), 0 10px 28px -20px rgba(0,0,0,.55);
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
 html,body{margin:0; padding:0; background:var(--bg); color:var(--text);
-  font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
-  font-size:16px; line-height:1.6}
+  font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic UI",system-ui,sans-serif;
+  font-size:16px; line-height:1.55; -webkit-font-smoothing:antialiased}
 body{padding-bottom:76px; max-width:560px; margin:0 auto}
 h1,h2,h3{margin:0; font-weight:700}
-button{font-family:inherit; border:none; cursor:pointer; color:inherit; background:none}
-input{font-family:inherit; font-size:16px; color:var(--text);
-  background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%}
+::selection{background:rgba(168,198,238,.28)}
+button{font-family:inherit; border:none; cursor:pointer; color:inherit; background:none;
+  transition:background-color .15s, border-color .15s, color .15s, opacity .15s, filter .15s, transform .06s}
+input,textarea{font-family:inherit}
+input{font-size:16px; color:var(--text);
+  background:var(--surface2); border:1px solid var(--line-soft); border-radius:var(--r-ctl); padding:10px 12px; width:100%;
+  transition:border-color .15s}
 input:focus,button:focus-visible{outline:2px solid var(--moon); outline-offset:2px}
-input::placeholder{color:#4E5A73; font-style:italic}
-.dial{cursor:pointer}
+input::placeholder,textarea::placeholder{color:var(--faint); font-style:normal}
+.dial{cursor:pointer; overflow:visible} /* 目盛り文字(18等)がviewBox端で切れないように */
 
-header{display:flex; align-items:baseline; justify-content:space-between; padding:20px 20px 8px}
-header .date{font-size:22px; font-weight:700}
-header .app{font-size:12px; color:var(--muted); letter-spacing:.14em}
+header{display:flex; align-items:baseline; justify-content:space-between; padding:22px 20px 6px}
+header .date{font-size:21px; font-weight:800; letter-spacing:-.01em}
+header .app{font-size:11px; color:var(--muted); letter-spacing:.22em; font-weight:600}
 
 main{padding:0 16px}
-.card{background:var(--surface); border-radius:var(--radius); padding:18px; margin:12px 0; border:1px solid var(--line)}
-.card h2{font-size:13px; color:var(--muted); font-weight:600; letter-spacing:.1em; margin-bottom:12px}
+.card{background:var(--surface); border-radius:var(--radius); padding:16px; margin:10px 0;
+  border:1px solid var(--line-soft); box-shadow:var(--shadow-card)}
+.card h2{font-size:11px; color:var(--muted); font-weight:700; letter-spacing:.14em; margin-bottom:12px}
 .note{font-size:12px; color:var(--muted)}
 
 /* 睡眠ダイヤル */
 .sleep-body{display:flex; align-items:center; gap:18px}
 .dial{flex:0 0 116px}
-.sleep-info .dur{font-size:34px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.2}
-.sleep-info .dur small{font-size:16px; font-weight:600; color:var(--muted)}
-.sleep-info .times{color:var(--muted); font-size:14px; margin-top:4px; font-variant-numeric:tabular-nums}
-.sleep-info .src{font-size:12px; color:var(--muted); margin-top:6px}
-.btn-ghost{color:var(--moon); font-size:14px; padding:6px 0}
-.btn-big{display:block; width:100%; padding:15px; border-radius:14px; font-size:17px; font-weight:700;
-  background:linear-gradient(140deg,#26344E,#1B2740); color:var(--moon); border:1px solid var(--line); margin-top:10px}
-.btn-big:active{transform:scale(.98)}
+.sleep-info .dur{font-size:31px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.2; letter-spacing:-.02em}
+.sleep-info .dur small{font-size:14px; font-weight:600; color:var(--muted)}
+.sleep-info .times{color:var(--muted); font-size:13.5px; margin-top:4px; font-variant-numeric:tabular-nums}
+.sleep-info .src{font-size:11.5px; color:var(--faint); margin-top:6px}
+.btn-ghost{color:var(--moon); font-size:13.5px; padding:6px 0; font-weight:600}
+.btn-big{display:block; width:100%; padding:14px; border-radius:13px; font-size:16px; font-weight:700;
+  background:linear-gradient(140deg,#243350,#19233C); color:var(--moon); border:1px solid var(--line);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05); margin-top:10px}
+.btn-big:active{transform:scale(.985)}
 .pending{display:flex; justify-content:space-between; align-items:center}
 .pending .label{color:var(--moon); font-weight:700}
 
 /* チェックイン・セグメント */
-.ckrow{display:flex; align-items:center; gap:8px; margin:9px 0}
-.ckrow .lbl{flex:0 0 66px; font-size:13px; color:var(--muted)}
+.ckrow{display:flex; align-items:center; gap:8px; margin:8px 0}
+.ckrow .lbl{flex:0 0 62px; font-size:12.5px; color:var(--muted)}
 .seg{display:flex; gap:6px; flex:1}
-.seg button{flex:1; padding:9px 0; background:var(--surface2); border:1px solid var(--line);
-  border-radius:10px; font-size:13px; font-weight:600}
-.seg button.emoji{font-size:19px; padding:6px 0}
-.seg button.sel{background:var(--moon); color:#101828; border-color:var(--moon)}
+.seg button{flex:1; padding:8px 0; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:10px; font-size:12.5px; font-weight:600}
+.seg button.emoji{font-size:17px; padding:5px 0}
+.seg button.sel{background:var(--moon); color:var(--ink); border-color:var(--moon)}
 .seg button:active{transform:scale(.94)}
 
 /* クイックログ */
-.subh{font-size:12px; color:var(--muted); margin:14px 0 6px; letter-spacing:.06em}
+.subh{font-size:11.5px; color:var(--muted); margin:14px 0 7px; letter-spacing:.08em; font-weight:600}
 .subh:first-of-type{margin-top:0}
-.chips{display:grid; grid-template-columns:repeat(4,1fr); gap:8px}
+.chips{display:grid; grid-template-columns:repeat(4,1fr); gap:7px}
 .chips.g3{grid-template-columns:repeat(3,1fr)}
-.chips button{padding:12px 4px; background:var(--surface2); border-radius:12px; font-size:14px;
-  font-weight:600; border:1px solid var(--line)}
-.chips button:active{background:var(--amber); color:#20160A; transform:scale(.95)}
+.chips button{padding:10px 4px; background:var(--surface2); border-radius:var(--r-ctl); font-size:13px;
+  font-weight:600; border:1px solid var(--line-soft)}
+.chips button:active{transform:scale(.96); filter:brightness(1.3)}
 .chips .no-meal{grid-column:1/-1; color:var(--muted); font-weight:500; padding:9px}
-.tier button{font-size:14px; padding:14px 4px}
+.tier button{font-size:13px; padding:12px 4px}
 .tG{border-color:#3E6B54!important} .tN{border-color:#6B5B3E!important} .tJ{border-color:#6B3E3E!important}
-.placerow{margin-top:8px; background:var(--surface2); border-radius:12px; padding:10px}
-.placerow .q{font-size:12px; color:var(--muted); margin-bottom:8px}
+.placerow{margin-top:8px; background:var(--surface2); border-radius:13px; padding:10px}
+.placerow .q{font-size:11.5px; color:var(--muted); margin-bottom:8px}
+.placerow .chips button{background:var(--surface)}
 
 /* ログ */
 .log{list-style:none; margin:0; padding:0}
-.log li{display:flex; gap:12px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px}
+.log li{display:flex; gap:12px; padding:8px 0; border-bottom:1px solid var(--line-soft); font-size:13.5px}
 .log li:last-child{border-bottom:none}
-.log time{color:var(--muted); font-variant-numeric:tabular-nums; flex:0 0 46px}
+.log time{color:var(--muted); font-variant-numeric:tabular-nums; flex:0 0 44px}
 .log .empty{color:var(--muted); border:none}
-.tierdot{margin-left:auto; font-size:11px; color:var(--muted)}
+.tierdot{margin-left:auto; font-size:10px; color:var(--muted)}
 
 /* レポート */
-.report .summary{font-size:15px}
-.report ul{margin:10px 0; padding-left:18px; font-size:14px; color:var(--muted)}
-.exp{background:var(--surface2); border-radius:12px; padding:12px 14px; margin-top:10px; border-left:3px solid var(--amber)}
-.exp .t{font-weight:700; color:var(--amber); font-size:14px}
-.exp .a{font-size:15px; margin-top:2px}
-.exp .w{font-size:13px; color:var(--muted); margin-top:4px}
-.oneliner{margin-top:12px; font-size:14px; color:var(--moon)}
-.review{margin-top:10px; font-size:13px; color:var(--muted)}
-.gen-note{font-size:13px; color:var(--muted); margin-top:8px}
-.statrow{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px}
-.statrow span{background:var(--surface2); border:1px solid var(--line); border-radius:999px;
-  padding:5px 12px; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums}
+.report .summary{font-size:14.5px}
+.report ul{margin:10px 0; padding-left:18px; font-size:13.5px; color:var(--muted)}
+.exp{background:var(--surface2); border-radius:13px; padding:12px 14px; margin-top:10px; border-left:3px solid var(--amber)}
+.exp .t{font-weight:700; color:var(--amber); font-size:13.5px}
+.exp .a{font-size:14.5px; margin-top:2px}
+.exp .w{font-size:12.5px; color:var(--muted); margin-top:4px}
+.oneliner{margin-top:12px; font-size:13.5px; color:var(--moon)}
+.review{margin-top:10px; font-size:12.5px; color:var(--muted)}
+.gen-note{font-size:12.5px; color:var(--muted); margin-top:8px}
+.statrow{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px}
+.statrow span{background:var(--surface2); border:1px solid var(--line-soft); border-radius:999px;
+  padding:4px 11px; font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums}
 .statrow small{color:var(--muted); font-weight:500}
-details.rephist{border-bottom:1px solid var(--line); padding:10px 0; font-size:14px}
-details.rephist summary{cursor:pointer; color:var(--muted)}
+details.rephist{border-bottom:1px solid var(--line-soft); padding:10px 0; font-size:13.5px}
+details.rephist summary{cursor:pointer; color:var(--muted); transition:color .15s}
+details.rephist summary:hover{color:var(--text)}
 details.rephist summary b{color:var(--text)}
 details.err{margin-top:8px; font-size:12px; color:var(--bad)}
 details.err pre{white-space:pre-wrap; word-break:break-all; background:var(--surface2); padding:8px; border-radius:8px; color:var(--muted)}
 
 /* 履歴 */
 .daystrip{display:flex; gap:6px; margin-bottom:12px}
-.daystrip button{flex:1; padding:8px 0; background:var(--surface2); border:1px solid var(--line);
-  border-radius:10px; font-size:12px; font-weight:600; line-height:1.3}
-.daystrip button.sel{background:var(--moon); color:#101828}
+.daystrip button{flex:1; padding:7px 0; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:10px; font-size:11.5px; font-weight:600; line-height:1.35}
+.daystrip button.sel{background:var(--moon); color:var(--ink); border-color:var(--moon)}
 .chart{width:100%; margin-top:6px}
-.chart text{fill:var(--muted); font-size:10px}
-.legend{font-size:12px; color:var(--muted); margin-top:2px}
+.chart text{fill:var(--muted); font-size:9.5px}
+.legend{font-size:11.5px; color:var(--faint); margin-top:2px}
 
 /* 設定 */
 .field{margin:14px 0}
-.field label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+.field label{display:block; font-size:12.5px; color:var(--muted); margin-bottom:6px}
 .timepick{display:flex; gap:8px; align-items:center}
-.timepick select{flex:1; font-family:inherit; font-size:20px; font-weight:700; text-align:center;
-  color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px;
+.timepick select{flex:1; font-family:inherit; font-size:19px; font-weight:700; text-align:center;
+  color:var(--text); background:var(--surface2); border:1px solid var(--line-soft); border-radius:var(--r-ctl);
   padding:10px 4px; font-variant-numeric:tabular-nums; appearance:none; -webkit-appearance:none}
-.timepick .colon{font-size:20px; font-weight:700; color:var(--muted)}
+.timepick .colon{font-size:19px; font-weight:700; color:var(--muted)}
 .row2{display:flex; gap:8px}
-.btn{padding:11px 16px; border-radius:10px; background:var(--surface2); border:1px solid var(--line); font-weight:600; font-size:14px}
-.btn.primary{background:var(--moon); color:#101828}
-.btn.danger{color:var(--bad); border-color:var(--bad)}
+.btn{padding:10px 16px; border-radius:var(--r-ctl); background:var(--surface2); border:1px solid var(--line-soft); font-weight:600; font-size:13.5px}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--moon); color:var(--ink); border-color:var(--moon); font-weight:700}
+.btn.danger{color:var(--bad); border-color:rgba(217,139,139,.45)}
 .chiplist{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px}
-.chiplist .chip{background:var(--surface2); border:1px solid var(--line); border-radius:999px;
-  padding:4px 4px 4px 12px; font-size:13px; display:inline-flex; gap:2px; align-items:center}
-.chiplist .chip button{color:var(--bad); font-weight:700; padding:0 8px; font-size:15px}
+.chiplist .chip{background:var(--surface2); border:1px solid var(--line-soft); border-radius:999px;
+  padding:4px 4px 4px 12px; font-size:12.5px; display:inline-flex; gap:2px; align-items:center}
+.chiplist .chip button{color:var(--bad); font-weight:700; padding:0 8px; font-size:14px}
 
 /* ナビ/トースト/ダイアログ */
 nav{position:fixed; bottom:0; left:0; right:0; max-width:560px; margin:0 auto; display:flex;
-  background:rgba(23,31,46,.96); backdrop-filter:blur(8px); border-top:1px solid var(--line);
+  background:rgba(15,21,34,.92); backdrop-filter:blur(12px); border-top:1px solid var(--line-soft);
   padding-bottom:env(safe-area-inset-bottom)}
-nav a{flex:1; text-align:center; padding:12px 0 10px; color:var(--muted); text-decoration:none; font-size:12px}
-nav a .ic{display:block; font-size:20px}
+nav a{flex:1; text-align:center; padding:10px 0 9px; color:var(--faint); text-decoration:none;
+  font-size:10px; font-weight:600; letter-spacing:.06em; transition:color .15s}
+nav a .ic{display:block; font-size:18px; margin-bottom:2px; filter:grayscale(1) opacity(.55); transition:filter .15s}
 nav a.on{color:var(--moon)}
+nav a.on .ic{filter:none}
 #toast{position:fixed; bottom:86px; left:50%; transform:translateX(-50%); background:var(--surface2);
-  border:1px solid var(--line); border-radius:12px; padding:10px 16px; font-size:14px;
-  display:none; align-items:center; gap:14px; white-space:nowrap; z-index:10; box-shadow:0 6px 24px rgba(0,0,0,.4)}
+  border:1px solid var(--line); border-radius:13px; padding:10px 16px; font-size:13.5px;
+  display:none; align-items:center; gap:14px; white-space:nowrap; z-index:10; box-shadow:0 10px 32px rgba(0,0,0,.5)}
 #toast button{color:var(--amber); font-weight:700}
 dialog{background:var(--surface); color:var(--text); border:1px solid var(--line);
-  border-radius:var(--radius); padding:20px; width:min(92vw,380px)}
-dialog::backdrop{background:rgba(0,0,0,.6)}
+  border-radius:var(--radius); padding:20px; width:min(92vw,380px);
+  box-shadow:0 24px 64px -16px rgba(0,0,0,.6)}
+dialog[open]{animation:dlgin .18s ease-out}
+@keyframes dlgin{from{opacity:0; transform:translateY(8px) scale(.98)}}
+dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
 .hidden{display:none!important}
+
+/* きろく: まとめ入力・食事の種類 */
+.btn-meal-add{display:block; width:100%; padding:14px; border-radius:13px; font-size:15.5px; font-weight:700;
+  background:linear-gradient(140deg,#243350,#19233C); color:var(--moon); border:1px solid var(--line);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.btn-meal-add:active{transform:scale(.985)}
+.chip-nomeal{width:100%; padding:10px; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:var(--r-ctl); font-size:13px; font-weight:600; color:var(--muted)}
+.chip-nomeal:active{transform:scale(.985); filter:brightness(1.3)}
+.kind{font-size:12.5px; padding:10px 4px; font-weight:600}
+.kG{border-color:#37604C!important; background:#152420!important}
+.kN{border-color:#5E5138!important; background:#221E14!important}
+.kJ{border-color:#5E3A3A!important; background:#221616!important}
+.kind.sel{outline:2px solid var(--moon); outline-offset:1px}
+.chips button.sel:not(.kind){background:var(--moon); color:var(--ink); border-color:var(--moon)}
+.selitem{display:flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:var(--r-ctl); padding:6px 8px; margin:6px 0}
+.selitem .nm{flex:1; font-size:13.5px; font-weight:600}
+.miniseg{display:flex; gap:4px}
+.miniseg button{padding:5px 8px; border:1px solid var(--line-soft); border-radius:8px; background:var(--bg);
+  font-size:13px; line-height:1; opacity:.45}
+.miniseg button.sel{outline:2px solid var(--moon); outline-offset:1px; opacity:1}
+.selitem .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:16px}
+.evtier{margin:12px 0 2px}
+
+/* 体調 / Personal Context */
+.btn-cond{display:block; width:100%; padding:11px; border-radius:var(--r-ctl); background:var(--surface2);
+  border:1px solid var(--line-soft); font-weight:600; font-size:13.5px; color:var(--text); margin-top:8px}
+.btn-cond:active{transform:scale(.985); filter:brightness(1.3)}
+.condlist{display:flex; flex-direction:column; gap:6px; margin-bottom:2px}
+.condchip{display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
+  padding:10px 12px; background:var(--surface2);
+  border:1px solid rgba(224,164,88,.5); border-radius:13px;
+  font-weight:600; font-size:13.5px; color:var(--text)}
+.condchip small{color:var(--muted); font-weight:400; font-variant-numeric:tabular-nums}
+.condchip .done{color:var(--good); font-weight:700; white-space:nowrap; font-size:12.5px}
+.pcrow{display:flex; align-items:center; gap:6px; margin:6px 0}
+.pcrow input{flex:1; font-size:13.5px; padding:8px 11px}
+.pcbadge{font-size:14px}
+.pcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:16px}
+.hcrow{display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid var(--line-soft)}
+.hcrow:last-of-type{border-bottom:none}
+.hcrow .body{flex:1; min-width:0; font-size:13.5px}
+.hcrow .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:16px}
+.hcprev{margin:8px 0}
+.hcprev img{max-width:100%; max-height:200px; border-radius:12px; border:1px solid var(--line)}
+.hcconsent{color:var(--amber); font-size:12.5px; margin:8px 0}
+.hccheck{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); margin-top:6px}
+.hccheck input{width:auto}
+
+/* 計画: 週次目標 */
+.goalrow{margin:13px 0}
+.goalrow:first-of-type{margin-top:4px}
+.goalhead{font-size:12.5px; color:var(--muted); margin-bottom:7px; display:flex; align-items:center; gap:6px; font-weight:600}
+.goalhead small{color:var(--faint); font-weight:400; font-size:11px}
+.goalprog{margin-left:auto; font-size:12.5px; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums}
+.goalprog.met{color:var(--good)}
+/* auto-fitで択数に応じ常に1行等分(6択も4択も孤立改行しない) */
+.goalopts{display:grid; grid-template-columns:repeat(auto-fit,minmax(46px,1fr)); gap:6px}
+.goalopt{padding:8px 2px; text-align:center; background:var(--surface2); border:1px solid var(--line-soft);
+  border-radius:999px; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap}
+.goalopt.sel{background:var(--moon); color:var(--ink); border-color:var(--moon); font-weight:700}
+.goalopt:active{transform:scale(.94)}
+
+/* FAB(全タブ右下) */
+.fab{position:fixed; right:16px; bottom:calc(82px + env(safe-area-inset-bottom)); width:54px; height:54px;
+  border-radius:50%; background:linear-gradient(150deg,#C2D8F5,#8FB4E4); color:var(--ink); font-size:24px; font-weight:700;
+  box-shadow:0 10px 24px -6px rgba(100,145,205,.5), 0 3px 8px rgba(0,0,0,.35);
+  display:flex; align-items:center; justify-content:center; z-index:9}
+.fab:active{transform:scale(.92)}
+
 .spin{display:inline-block; animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
@@ -165,32 +258,41 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div id="ckHome"></div>
       <input id="noteHome" data-note="" placeholder="ひとことメモ(任意) 例: 終日眠かった / ずっと客先" maxlength="80" style="margin-top:10px">
     </div>
+    <div class="card" id="conditionCard"></div>
     <div class="card">
-      <h2>きろく(1タップ)</h2>
-      <div class="subh">🍽 食事はどうでした?</div>
-      <div class="chips g3 tier" id="tierBtns"></div>
+      <h2>きろく</h2>
+      <div class="subh">🍽 食事</div>
+      <div class="seg" id="logModeSeg" style="margin-bottom:10px"></div>
+      <div id="mealEntry"></div>
       <div class="placerow hidden" id="placeRow"></div>
-      <div class="chips" style="margin-top:8px"><button class="no-meal" data-nomeal="1">今日は食べてない</button></div>
+      <div style="margin-top:8px"><button type="button" class="chip-nomeal" data-nomeal="1">🚫 食べてない</button></div>
       <div class="subh">☕ カフェイン</div>
       <div class="chips"><button type="button" class="no-meal" data-latecoffee="1" style="color:var(--text)">☕ 21時以降にコーヒーを飲んだ</button></div>
       <div class="subh">🏃 運動(その場で)</div><div class="chips g3" id="activityChips"></div>
       <div class="subh">💪 今日の運動量</div>
       <div class="seg" id="exHome"></div>
+      <input id="noteKiroku" data-note="" data-notefield="kirokuNote"
+        placeholder="食事・運動のメモ(任意) 例: 外食続き / 久々に運動" maxlength="80" style="margin-top:12px">
     </div>
     <div class="card">
       <h2>今日のログ <span style="font-weight:400">(タップで時間修正・削除)</span></h2>
       <ul class="log" id="todayLog"></ul>
     </div>
-    <div class="card report" id="reportCard"></div>
   </section>
 
-  <!-- ============ 履歴 ============ -->
+  <!-- ============ 履歴(修正系) ============ -->
   <section id="view-history" class="hidden">
     <div class="card">
       <h2>日ごとの編集(直近7日)</h2>
       <div class="daystrip" id="dayStrip"></div>
       <div id="dayEditor"></div>
     </div>
+  </section>
+
+  <!-- ============ 分析(計画・グラフ・レポート) ============ -->
+  <section id="view-analysis" class="hidden">
+    <div class="card" id="planCard"></div>
+    <div class="card report" id="reportCard"></div>
     <div class="card" style="padding:12px 18px">
       <div class="seg" id="periodSeg"></div>
     </div>
@@ -226,8 +328,29 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     </div>
     <div class="card">
       <h2>ボタンの編集</h2>
+      <div id="kindEditor"></div>
       <div id="chipEditors"></div>
       <p class="note">×で削除、名前を入れて「追加」で登録。ホームに即反映されます。</p>
+    </div>
+    <div class="card">
+      <h2>自分のこと(Personal Context)</h2>
+      <div id="pcFacts"></div>
+      <p class="note">AIレポートに背景として渡されます。🤖はAIが健診などから抽出した項目です。すべて端末内に保存されます。</p>
+    </div>
+    <div class="card">
+      <h2>健康診断の記録</h2>
+      <div id="hcList"></div>
+      <div class="subh">📝 テキストで入力</div>
+      <textarea id="hcText" rows="3" maxlength="1500" placeholder="健診結果を貼り付け/入力 例: HbA1c 5.8 / 血圧 140/90 / LDL 145 / γ-GTP 60" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%"></textarea>
+      <div class="row2" style="margin-top:8px">
+        <button class="btn" id="btnHcTextSave">そのまま保存</button>
+        <button class="btn primary" id="btnHcTextAI" style="flex:1">🤖 AIで整理して保存</button>
+      </div>
+      <div class="subh">📷 画像で入力(任意)</div>
+      <input type="file" id="hcFile" accept="image/*" class="hidden">
+      <button class="btn" id="btnHcPick">健診結果の画像を選ぶ</button>
+      <div id="hcStage"></div>
+      <p class="note">テキストを「そのまま保存」なら<b>外部送信はありません</b>。「🤖 AIで整理」または画像「解析」を押したときだけGoogle(Gemini)に送信されます。画像は<b>端末内(IndexedDB)のみ</b>でエクスポートJSONには含まれません。AI利用は要APIキー。</p>
     </div>
     <div class="card">
       <h2>データ</h2>
@@ -236,7 +359,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
         <button class="btn" id="btnImport">インポート</button>
         <input type="file" id="fileImport" accept=".json" class="hidden">
       </div>
-      <p class="note">すべてのデータはこの端末のブラウザ内にのみ保存されます。機種変更前にエクスポートしてください。</p>
+      <p class="note">すべてのデータはこの端末のブラウザ内にのみ保存されます。機種変更前にエクスポートしてください。<b>健診画像(IndexedDB)はエクスポートに含まれません</b>ので、必要な画像は別途保存してください。</p>
       <button class="btn danger" id="btnWipe" style="margin-top:10px">すべてのデータを削除</button>
     </div>
   </section>
@@ -244,17 +367,19 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 
 <nav>
   <a href="#home" data-v="home"><span class="ic">🌙</span>ホーム</a>
-  <a href="#history" data-v="history"><span class="ic">📈</span>履歴</a>
+  <a href="#history" data-v="history"><span class="ic">✏️</span>履歴</a>
+  <a href="#analysis" data-v="analysis"><span class="ic">📈</span>分析</a>
   <a href="#settings" data-v="settings"><span class="ic">⚙️</span>設定</a>
 </nav>
 
 <div id="toast"><span id="toastMsg"></span><button id="toastUndo" class="hidden">取り消す</button></div>
 
 <dialog id="dlgSleep">
-  <h3 style="font-size:16px; margin-bottom:14px" id="dlgSleepTitle">睡眠を記録</h3>
-  <div class="field"><label>寝た時刻</label>
+  <h3 style="font-size:16px; margin-bottom:4px" id="dlgSleepTitle">睡眠を記録</h3>
+  <p class="note" id="dlgSleepFlow" style="margin-bottom:14px"></p>
+  <div class="field"><label>🌙 寝た時刻 <span class="note" id="lblBedDate"></span></label>
     <div class="timepick"><select id="inBedH"></select><span class="colon">:</span><select id="inBedM"></select></div></div>
-  <div class="field"><label>起きた時刻</label>
+  <div class="field"><label>☀️ 起きた時刻 <span class="note" id="lblWakeDate"></span></label>
     <div class="timepick"><select id="inWakeH"></select><span class="colon">:</span><select id="inWakeM"></select></div></div>
   <p class="note">寝た時刻が起きた時刻より遅い場合は前日の夜として扱います。</p>
   <div class="row2" style="margin-top:14px">
@@ -269,12 +394,61 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <div class="chips g3" id="slotBtns"></div>
   <div class="field" style="margin-top:12px"><label>正確な時刻</label>
     <div class="timepick"><select id="inEvH"></select><span class="colon">:</span><select id="inEvM"></select></div></div>
+  <div class="evtier hidden" id="evTierWrap">
+    <div class="subh">健康度(自動セットの修正)</div>
+    <div class="chips g3 tier" id="evTierBtns"></div>
+  </div>
   <div class="row2" style="margin-top:14px">
     <button class="btn danger" id="btnEvDelete">削除</button>
     <button class="btn" id="btnEvCancel">やめる</button>
     <button class="btn primary" id="btnEvSave" style="flex:1">保存</button>
   </div>
 </dialog>
+
+<dialog id="dlgMeal">
+  <h3 style="font-size:16px; margin-bottom:12px" id="dlgMealTitle">まとめて記録</h3>
+  <div class="subh" style="margin-top:0">対象日</div>
+  <div class="chips" id="mealDayBtns"></div>
+  <div class="subh">だいたいの時間</div>
+  <div class="chips g3" id="mealSlotBtns"></div>
+  <div class="subh">食べたもの(複数OK・色=健康度)</div>
+  <div class="chips g3" id="mealKindBtns"></div>
+  <div id="mealSelWrap" class="hidden">
+    <div class="subh">選んだもの(🟢🟡🔴で健康度を修正・×で削除)</div>
+    <div id="mealSelected"></div>
+  </div>
+  <div class="subh">🏪 店(任意)</div>
+  <div class="chips g3" id="mealStoreBtns"></div>
+  <div class="row2" style="margin-top:16px">
+    <button class="btn" id="btnMealCancel">やめる</button>
+    <button class="btn primary" id="btnMealSave" style="flex:1">記録する</button>
+  </div>
+</dialog>
+
+<dialog id="dlgCondition">
+  <h3 style="font-size:16px; margin-bottom:12px">🩹 いまの体調</h3>
+  <div class="subh" style="margin-top:0">どんな症状?(複数OK)</div>
+  <div class="chips g3" id="condPresets"></div>
+  <div class="field" style="margin-top:12px"><label>メモ(任意)</label>
+    <input id="condNote" placeholder="例: 微熱37.2 / 昨夜から" maxlength="60"></div>
+  <div class="row2" style="margin-top:14px">
+    <button class="btn" id="btnCondCancel">やめる</button>
+    <button class="btn primary" id="btnCondSave" style="flex:1">記録する</button>
+  </div>
+</dialog>
+
+<dialog id="dlgWeekend">
+  <h3 style="font-size:16px; margin-bottom:12px">🗓 週末のふりかえり</h3>
+  <div id="weekendSummary"></div>
+  <div id="weekendNudge"></div>
+  <div class="subh">来週の目標(<span id="weekendRange"></span>) — タップで設定・任意</div>
+  <div id="weekendGoals"></div>
+  <div class="row2" style="margin-top:16px">
+    <button class="btn primary" id="btnWeekendClose" style="flex:1">これで来週いく</button>
+  </div>
+</dialog>
+
+<button type="button" class="fab hidden" id="fab" aria-label="記録を追加"></button>
 
 <script src="core.js"></script>
 <script>
@@ -377,12 +551,19 @@ function renderSleep(){
   const bb = $("btnBed"); if(bb) bb.onclick = () => {
     HK.markBed(state, Date.now()); save(); renderSleep(); toast("おやすみなさい。よい眠りを");
   };
+  if(document.getElementById("fab")) renderFab();
 }
 let dlgTarget = null;
 function openSleepDialog(dateIso, existing){
   initTimePickers();
   dlgTarget = dateIso;
-  $("dlgSleepTitle").textContent = (existing ? "睡眠を修正" : "睡眠を記録") + `(${dateIso.slice(5).replace("-","/")}起床)`;
+  const wd = new Date(dateIso + "T12:00:00");
+  const bd = new Date(wd.getTime() - 86400000);
+  const md = (d) => `${d.getMonth()+1}/${d.getDate()}(${"月火水木金土日"[(d.getDay()+6)%7]})`;
+  $("dlgSleepTitle").textContent = existing ? "睡眠を修正" : "昨夜の睡眠を記録";
+  $("dlgSleepFlow").textContent = `${md(bd)}の夜 → ${md(wd)}の朝 に起きた睡眠です`;
+  $("lblBedDate").textContent = `(${bd.getMonth()+1}/${bd.getDate()} 夜)`;
+  $("lblWakeDate").textContent = `(${wd.getMonth()+1}/${wd.getDate()} 朝)`;
   setPicker("inBedH","inBedM", existing ? HK.parseHHmm(HK.hhmm(existing.bed)) : 30);
   setPicker("inWakeH","inWakeM", existing ? HK.parseHHmm(HK.hhmm(existing.wake)) : 6*60+30);
   $("dlgSleep").showModal();
@@ -425,12 +606,19 @@ function renderCheckinHome(){
   const n = $("noteHome");
   n.dataset.note = lToday();
   n.value = (state.checkin[lToday()] || {}).note || "";
+  const k = $("noteKiroku");
+  k.dataset.note = lToday();
+  k.value = (state.checkin[lToday()] || {}).kirokuNote || "";
 }
 document.addEventListener("change", (e) => {
   const t = e.target;
   if(t.matches && t.matches("input[data-note]")){
-    HK.setCheckin(state, t.dataset.note, "note", t.value.trim()); save();
+    const field = t.dataset.notefield || "note";
+    HK.setCheckin(state, t.dataset.note, field, t.value.trim()); save();
     if(t.value.trim()) toast("メモを保存しました");
+  }
+  if(t.matches && t.matches("input[data-fact]")){
+    HK.updateFact(state, t.dataset.fact, t.value); save();
   }
 });
 document.addEventListener("click", (e) => {
@@ -459,11 +647,28 @@ let logTargetDate = null; // null = 今日(論理日)。日エディタで過去
 const targetDate = () => logTargetDate || lToday();
 const TIERS = [[3,"🔴 ジャンク","tJ"],[2,"🟡 ふつう","tN"],[1,"🟢 体にいい","tG"]];
 const TIER_MARK = {1:"🟢",2:"🟡",3:"🔴"};
+const TIER_CLS = {1:"kG",2:"kN",3:"kJ"}; // 種類チップの色クラス
 const TYPE_ICON = {MEAL:"🍽", COFFEE:"☕", ACTIVITY:"🏃", NO_MEAL:"—"};
+const LOG_MODES = [["batch","まとめて"],["quick","都度(1タップ)"]];
 
+function renderLogModeSeg(){
+  const mode = state.settings.logMode || "batch";
+  $("logModeSeg").innerHTML = LOG_MODES.map(([k,lab]) =>
+    `<button type="button" class="${mode===k?"sel":""}" data-logmode="${k}">${lab}</button>`).join("");
+}
+function renderMealEntry(){
+  const mode = state.settings.logMode || "batch";
+  if(mode === "quick"){
+    $("mealEntry").innerHTML = `<div class="chips g3 tier">` + TIERS.map(([t,lab,cls]) =>
+      `<button type="button" class="${cls}" data-tier="${t}">${lab}</button>`).join("") + `</div>`;
+  } else {
+    $("mealEntry").innerHTML = `<button type="button" class="btn-meal-add" id="btnMealAdd">＋ まとめて記録</button>`;
+    hidePlaceRow();
+  }
+}
 function renderChips(){
-  $("tierBtns").innerHTML = TIERS.map(([t,lab,cls]) =>
-    `<button type="button" class="${cls}" data-tier="${t}">${lab}</button>`).join("");
+  renderLogModeSeg();
+  renderMealEntry();
   $("activityChips").innerHTML = state.settings.activityChips.map(c =>
     `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("");
 }
@@ -509,14 +714,19 @@ document.addEventListener("click", (e) => {
 });
 function showPlaceRow(mealId, showStores){
   const row = $("placeRow");
-  const chips = showStores ? state.settings.mealChips : state.settings.mealKinds;
-  const toggle = showStores
-    ? `<button type="button" data-placeview="${mealId}:kinds" style="color:var(--moon)">← 種類から選ぶ</button>`
-    : `<button type="button" data-placeview="${mealId}:stores" style="color:var(--moon)">🏪 お店から選ぶ</button>`;
-  row.innerHTML = `<div class="q">なにを食べました?(任意)</div><div class="chips g3">` +
-    chips.map(c =>
-      `<button type="button" data-place="${mealId}:${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("") +
-    toggle +
+  let inner, q;
+  if(showStores){
+    q = "どこで食べました?(任意)";
+    inner = state.settings.mealChips.map(c =>
+      `<button type="button" data-placestore="${mealId}:${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("") +
+      `<button type="button" data-placeview="${mealId}:kinds" style="color:var(--moon)">← 種類にもどる</button>`;
+  } else {
+    q = "なにを食べました?(任意)";
+    inner = state.settings.mealKinds.map(k =>
+      `<button type="button" class="kind ${TIER_CLS[k.tier]||"kN"}" data-place="${mealId}:${String(k.label).replace(/"/g,"&quot;")}">${k.emoji||"🍽"} ${esc(k.label)}</button>`).join("") +
+      `<button type="button" data-placeview="${mealId}:stores" style="color:var(--moon)">🏪 お店から選ぶ</button>`;
+  }
+  row.innerHTML = `<div class="q">${q}</div><div class="chips g3">` + inner +
     `<button type="button" data-place="${mealId}:" style="color:var(--muted)">スキップ</button></div>`;
   row.classList.remove("hidden");
   clearTimeout(placeTimer);
@@ -528,6 +738,13 @@ document.addEventListener("click", (e) => {
   if(pv){
     const [id, view] = pv.dataset.placeview.split(":");
     showPlaceRow(+id, view === "stores"); return;
+  }
+  const ps = e.target.closest("button[data-placestore]");
+  if(ps){
+    const j = ps.dataset.placestore.indexOf(":");
+    const sid = +ps.dataset.placestore.slice(0, j), store = ps.dataset.placestore.slice(j+1);
+    if(store){ HK.setEventPlace(state, sid, store); save(); renderTodayLog(); renderDayEditor(); toast(`🏪 ${store} を記録`); }
+    hidePlaceRow(); return;
   }
   const p = e.target.closest("button[data-place]");
   if(!p) return;
@@ -541,8 +758,9 @@ function eventLine(e){
   const name = e.type === "NO_MEAL" ? "食べてない"
     : e.type === "COFFEE" ? (e.label || "コーヒー")
     : (e.label || (e.type === "MEAL" ? "食事" : ""));
+  const place = e.place ? ` <small style="color:var(--muted)">· ${esc(e.place)}</small>` : "";
   const tier = e.type === "MEAL" ? `<span class="tierdot">${TIER_MARK[e.tier||2]}</span>` : "";
-  return `<li data-eid="${e.id}"><time>${HK.hhmm(e.t)}</time><span>${TYPE_ICON[e.type]||""} ${esc(name)}</span>${tier}</li>`;
+  return `<li data-eid="${e.id}"><time>${HK.hhmm(e.t)}</time><span>${TYPE_ICON[e.type]||""} ${esc(name)}${place}</span>${tier}</li>`;
 }
 function renderTodayLog(){
   const ev = HK.eventsOn(state, lToday());
@@ -553,7 +771,7 @@ function renderTodayLog(){
 }
 
 /* ログの時刻修正/削除 */
-let evTarget = null;
+let evTarget = null, evTierSel = null;
 function openEventDialog(id){
   const e = state.events.find(x => x.id === id); if(!e) return;
   initTimePickers();
@@ -565,8 +783,24 @@ function openEventDialog(id){
   $("slotBtns").innerHTML = slots.map(([lab,m]) =>
     `<button type="button" data-slot="${m}">${lab}</button>`).join("");
   $("slotBtns").querySelectorAll("button").forEach(b => b.onclick = () => setPicker("inEvH","inEvM", +b.dataset.slot));
+  // 食事は健康度tierも修正可
+  const isMeal = e.type === "MEAL";
+  $("evTierWrap").classList.toggle("hidden", !isMeal);
+  evTierSel = isMeal ? (e.tier || 2) : null;
+  if(isMeal){
+    $("evTierBtns").innerHTML = TIERS.map(([t,lab,cls]) =>
+      `<button type="button" class="${cls}${evTierSel===t?" sel":""}" data-evtier="${t}">${lab}</button>`).join("");
+  }
   $("dlgEvent").showModal();
 }
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button[data-evtier]");
+  if(t){
+    evTierSel = +t.dataset.evtier;
+    $("evTierBtns").querySelectorAll("button").forEach(b =>
+      b.classList.toggle("sel", +b.dataset.evtier === evTierSel));
+  }
+});
 $("btnEvCancel").onclick = () => $("dlgEvent").close();
 $("btnEvDelete").onclick = () => {
   if(evTarget){ HK.deleteEventById(state, evTarget.id); save(); renderTodayLog(); renderDayEditor(); }
@@ -577,8 +811,123 @@ $("btnEvSave").onclick = () => {
   if(!evTarget){ $("dlgEvent").close(); return; }
   // 論理日を保ったまま時刻を変更(0-3時台は同じ論理日の深夜として翌実日になる)
   const ld = HK.logicalDateIso(evTarget.t);
-  HK.updateEventTime(state, evTarget.id, HK.msFromLogicalDate(ld, m)); save();
-  renderTodayLog(); renderDayEditor(); $("dlgEvent").close(); toast("時間を修正しました");
+  HK.updateEventTime(state, evTarget.id, HK.msFromLogicalDate(ld, m));
+  if(evTarget.type === "MEAL" && evTierSel != null) HK.setEventTier(state, evTarget.id, evTierSel);
+  save();
+  renderTodayLog(); renderDayEditor(); $("dlgEvent").close(); toast("修正しました");
+};
+
+/* ================= まとめて記録(バッチ入力) ================= */
+let mealDraft = null; // {dayIso, slotMin, items:[{label,emoji,tier}], store}
+const MEAL_SLOTS = [["🌅 朝",360],["🌞 昼",720],["🌆 夕",1080],["🌙 夜",1260],["🌌 深夜",0]];
+function defaultSlotMin(){
+  const h = new Date().getHours();
+  if(h < 4) return 0;      // 深夜
+  if(h < 11) return 360;   // 朝
+  if(h < 15) return 720;   // 昼
+  if(h < 18) return 1080;  // 夕
+  return 1260;             // 夜
+}
+function openMealDialog(dayIso){
+  mealDraft = { dayIso: dayIso || lToday(), slotMin: defaultSlotMin(), items: [], store: null };
+  renderMealDialog();
+  $("dlgMeal").showModal();
+}
+function renderMealDialog(){
+  const d = mealDraft;
+  const days = [];
+  for(let i = 0; i < 5; i++){
+    const iso = HK.logicalDateIso(Date.now() - i * 86400000);
+    const dd = new Date(iso + "T12:00:00");
+    const lab = i === 0 ? "今日" : i === 1 ? "昨日" : i === 2 ? "一昨日"
+      : `${dd.getMonth()+1}/${dd.getDate()}`;
+    days.push(`<button type="button" class="${d.dayIso===iso?"sel":""}" data-mealday="${iso}">${lab}</button>`);
+  }
+  $("mealDayBtns").innerHTML = days.join("");
+  $("mealSlotBtns").innerHTML = MEAL_SLOTS.map(([lab,m]) =>
+    `<button type="button" class="${d.slotMin===m?"sel":""}" data-mealslot="${m}">${lab}</button>`).join("");
+  $("mealKindBtns").innerHTML = state.settings.mealKinds.map((k,idx) => {
+    const sel = d.items.some(it => it.label === k.label);
+    return `<button type="button" class="kind ${TIER_CLS[k.tier]||"kN"}${sel?" sel":""}" data-mealkind="${idx}">${k.emoji||"🍽"} ${esc(k.label)}</button>`;
+  }).join("");
+  if(d.items.length){
+    $("mealSelWrap").classList.remove("hidden");
+    $("mealSelected").innerHTML = d.items.map((it,i) =>
+      `<div class="selitem"><span class="nm">${it.emoji||"🍽"} ${esc(it.label)}</span>
+        <div class="miniseg">${[[1,"🟢"],[2,"🟡"],[3,"🔴"]].map(([t,mk]) =>
+          `<button type="button" class="${it.tier===t?"sel":""}" data-selitier="${i}:${t}">${mk}</button>`).join("")}</div>
+        <button type="button" class="rm" data-selrm="${i}" aria-label="削除">×</button></div>`).join("");
+  } else {
+    $("mealSelWrap").classList.add("hidden"); $("mealSelected").innerHTML = "";
+  }
+  $("mealStoreBtns").innerHTML = state.settings.mealChips.map(c =>
+    `<button type="button" class="${d.store===c?"sel":""}" data-mealstore="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("")
+    + (d.store ? `<button type="button" data-mealstore="" style="color:var(--muted)">店なし</button>` : "");
+}
+document.addEventListener("click", (e) => {
+  if(!mealDraft) return;
+  const dy = e.target.closest("button[data-mealday]");
+  if(dy){ mealDraft.dayIso = dy.dataset.mealday; renderMealDialog(); return; }
+  const sl = e.target.closest("button[data-mealslot]");
+  if(sl){ mealDraft.slotMin = +sl.dataset.mealslot; renderMealDialog(); return; }
+  const kd = e.target.closest("button[data-mealkind]");
+  if(kd){
+    const k = state.settings.mealKinds[+kd.dataset.mealkind];
+    const at = mealDraft.items.findIndex(it => it.label === k.label);
+    if(at >= 0) mealDraft.items.splice(at, 1);
+    else mealDraft.items.push({ label: k.label, emoji: k.emoji || "🍽", tier: k.tier || 2 });
+    renderMealDialog(); return;
+  }
+  const ti = e.target.closest("button[data-selitier]");
+  if(ti){ const [i,t] = ti.dataset.selitier.split(":"); mealDraft.items[+i].tier = +t; renderMealDialog(); return; }
+  const rm = e.target.closest("button[data-selrm]");
+  if(rm){ mealDraft.items.splice(+rm.dataset.selrm, 1); renderMealDialog(); return; }
+  const st = e.target.closest("button[data-mealstore]");
+  if(st){ mealDraft.store = st.dataset.mealstore || null; renderMealDialog(); return; }
+});
+$("btnMealCancel").onclick = () => { $("dlgMeal").close(); };
+$("btnMealSave").onclick = () => {
+  const d = mealDraft;
+  if(!d || !d.items.length){ toast("食べたものを選んでください"); return; }
+  const ms = d.dayIso === lToday() && d.slotMin === defaultSlotMin() ? Date.now() : HK.msFromLogicalDate(d.dayIso, d.slotMin);
+  const ids = [];
+  d.items.forEach(it => {
+    const id = HK.logEvent(state, "MEAL", it.label, ms, it.tier);
+    if(d.store) HK.setEventPlace(state, id, d.store);
+    ids.push(id);
+  });
+  save(); renderTodayLog(); renderDayEditor();
+  $("dlgMeal").close();
+  const n = ids.length;
+  toast(`${n}件を記録しました`, () => {
+    ids.forEach(id => HK.deleteEventById(state, id));
+    save(); renderTodayLog(); renderDayEditor();
+  });
+};
+
+/* 都度/まとめ 切替 と まとめ起動 */
+document.addEventListener("click", (e) => {
+  const lm = e.target.closest("button[data-logmode]");
+  if(lm){ state.settings.logMode = lm.dataset.logmode; save(); renderChips(); return; }
+  const ma = e.target.closest("#btnMealAdd");
+  if(ma){ openMealDialog(targetDate()); return; }
+});
+
+/* ================= FAB(全タブ右下) ================= */
+function renderFab(){
+  const fab = $("fab");
+  const h = new Date().getHours();
+  const night = (h >= 18 || h < 4) && state.pendingBed == null;
+  fab.textContent = night ? "🌙" : "＋";
+  fab.dataset.action = night ? "bed" : "meal";
+  fab.classList.remove("hidden");
+}
+$("fab").onclick = () => {
+  if($("fab").dataset.action === "bed"){
+    HK.markBed(state, Date.now()); save(); renderSleep(); renderFab(); toast("おやすみなさい。よい眠りを");
+  } else {
+    openMealDialog(targetDate());
+  }
 };
 
 /* ================= 週次レポート ================= */
@@ -647,7 +996,8 @@ async function generateReport(){
   try{
     const days = HK.buildDaySummaries(state, Date.now(), 7);
     const weeks = HK.buildPastWeeks(state, Date.now(), 4);
-    const payload = HK.buildGeminiPayload(days, weeks, state.settings.lastExperiment);
+    const context = HK.buildContextPayload(state, Date.now());
+    const payload = HK.buildGeminiPayload(days, weeks, state.settings.lastExperiment, context);
     const model = HK.resolveModel(state.settings);
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -670,6 +1020,335 @@ async function generateReport(){
   }
   renderReport();
 }
+
+/* ================= 計画: 週次目標 ================= */
+const GOAL_DEFS = [
+  { f:"sleepMin", icon:"😴", label:"睡眠(毎晩平均)", dir:"以上",
+    opts:[[360,"6h"],[390,"6.5h"],[420,"7h"],[450,"7.5h"],[480,"8h"],[510,"8.5h"]],
+    prog:(p)=>p.sleepAvgMin, met:(c,g)=>c!=null&&c>=g,
+    fmt:(v)=>v==null?"—":`${Math.floor(v/60)}h${String(v%60).padStart(2,"0")}m` },
+  { f:"greenDays", icon:"🟢", label:"体にいい食事", dir:"日/週 以上",
+    opts:[[2,"2日"],[3,"3日"],[4,"4日"],[5,"5日"],[6,"6日"],[7,"毎日"]],
+    prog:(p)=>p.greenDays, met:(c,g)=>c>=g, fmt:(v)=>`${v}日` },
+  { f:"exerciseDays", icon:"💪", label:"運動した日", dir:"日/週 以上",
+    opts:[[2,"2日"],[3,"3日"],[4,"4日"],[5,"5日"],[6,"6日"],[7,"毎日"]],
+    prog:(p)=>p.exerciseDays, met:(c,g)=>c>=g, fmt:(v)=>`${v}日` },
+  { f:"junkMax", icon:"🔴", label:"ジャンクを抑える", dir:"回/週 まで",
+    opts:[[0,"0回"],[1,"1回"],[2,"2回"],[3,"3回"],[5,"5回"]],
+    prog:(p)=>p.junkCount, met:(c,g)=>c<=g, fmt:(v)=>`${v}回` },
+  { f:"lateCoffeeMax", icon:"☕", label:"21時以降コーヒー", dir:"回/週 まで",
+    opts:[[0,"0回"],[1,"1回"],[2,"2回"],[3,"3回"]],
+    prog:(p)=>p.lateCoffee, met:(c,g)=>c<=g, fmt:(v)=>`${v}回` }
+];
+function goalRowHtml(def, weekIso, prog){
+  const set = HK.getGoal(state, weekIso)[def.f];
+  const chips = def.opts.map(([v,lab]) =>
+    `<button type="button" class="goalopt ${set===v?"sel":""}" data-goal="${def.f}:${v}:${weekIso}">${lab}</button>`).join("");
+  let progHtml = "";
+  if(prog && set != null){
+    const cur = def.prog(prog), ok = def.met(cur, set);
+    progHtml = `<span class="goalprog ${ok?"met":""}">${def.fmt(cur)}${ok?" ✓":""}</span>`;
+  }
+  return `<div class="goalrow"><div class="goalhead">${def.icon} ${def.label} <small>${def.dir}</small>${progHtml}</div>
+    <div class="goalopts">${chips}</div></div>`;
+}
+function renderGoals(weekIso, prog){ return GOAL_DEFS.map(d => goalRowHtml(d, weekIso, prog)).join(""); }
+function renderPlan(){
+  const wk = HK.weekStartIso(Date.now());
+  const prog = HK.weekProgress(state, Date.now());
+  const has = Object.keys(HK.getGoal(state, wk)).length > 0;
+  $("planCard").innerHTML = `<h2>今週の目標 <span style="font-weight:400">(${weekRangeLabel(wk)})</span></h2>`
+    + (has ? "" : `<p class="note" style="margin-bottom:4px">目標をタップで設定(任意・いつでも変更OK)。ストイックに攻めるのも自由です。</p>`)
+    + renderGoals(wk, prog);
+}
+document.addEventListener("click", (e) => {
+  const g = e.target.closest("button[data-goal]");
+  if(!g) return;
+  const [f, v, wk] = g.dataset.goal.split(":");
+  const cur = HK.getGoal(state, wk)[f];
+  HK.setGoal(state, wk, f, cur === +v ? null : +v); save();
+  renderPlan();
+  if($("dlgWeekend").open) renderWeekend();
+});
+
+/* 週末ポップアップ(土12時以降/日に1回だけ・追撃しない) */
+function nextWeekIso(){
+  const wk = HK.weekStartIso(Date.now());
+  return HK.dateIso(new Date(wk + "T12:00:00").getTime() + 7 * 86400000);
+}
+function renderWeekend(){
+  const nwk = nextWeekIso();
+  const prog = HK.weekProgress(state, Date.now());
+  const stats = statsRowHtml();
+  $("weekendSummary").innerHTML = `<div class="subh" style="margin-top:0">今週の記録</div>`
+    + (stats || `<p class="note">今週はまだ記録が少なめです。</p>`);
+  $("weekendNudge").innerHTML = prog.recordedSleepDays < 4
+    ? `<p class="note">睡眠の記録は今週${prog.recordedSleepDays}日ぶんです。もう少し貯まるとレポートの精度が上がります。</p>` : "";
+  $("weekendRange").textContent = weekRangeLabel(nwk);
+  $("weekendGoals").innerHTML = renderGoals(nwk, null);
+}
+function weekendDue(nowMs){
+  const d = new Date(nowMs), dow = d.getDay();
+  const isWeekend = (dow === 6 && d.getHours() >= 12) || dow === 0;
+  return isWeekend && state.lastGoalPromptWeek !== HK.weekStartIso(nowMs);
+}
+function maybeShowWeekend(){
+  if(document.querySelector("dialog[open]")) return;
+  if(!weekendDue(Date.now())) return;
+  state.lastGoalPromptWeek = HK.weekStartIso(Date.now()); save();
+  renderWeekend(); $("dlgWeekend").showModal();
+}
+$("btnWeekendClose").onclick = () => $("dlgWeekend").close();
+
+/* ================= 体調(オンデマンド) ================= */
+function renderConditions(){
+  const active = HK.activeConditions(state);
+  let h = `<h2>からだの調子</h2>`;
+  if(active.length){
+    h += `<div class="condlist">` + active.map(c =>
+      `<button type="button" class="condchip" data-resolve="${c.id}">
+        <span>${c.emoji} ${esc(c.label)} <small>${c.startIso.slice(5).replace("-","/")}〜</small></span>
+        <span class="done">✓ 治った</span></button>`).join("") + `</div>`;
+  }
+  h += `<button type="button" class="btn-cond" id="btnCondAdd">🤒 いまの体調を記録</button>`;
+  $("conditionCard").innerHTML = h;
+}
+let condPicks = [];
+function openConditionDialog(){
+  condPicks = [];
+  $("condNote").value = "";
+  $("condPresets").innerHTML = HK.CONDITION_PRESETS.map((p,i) =>
+    `<button type="button" data-cond="${i}">${p.emoji} ${esc(p.label)}</button>`).join("");
+  $("dlgCondition").showModal();
+}
+document.addEventListener("click", (e) => {
+  if(e.target.closest("#btnCondAdd")){ openConditionDialog(); return; }
+  const cp = e.target.closest("#condPresets button[data-cond]");
+  if(cp){
+    const i = +cp.dataset.cond, at = condPicks.indexOf(i);
+    if(at >= 0) condPicks.splice(at, 1); else condPicks.push(i);
+    cp.classList.toggle("sel", condPicks.includes(i));
+    return;
+  }
+  const rc = e.target.closest("button[data-resolve]");
+  if(rc){
+    const id = rc.dataset.resolve;
+    HK.resolveCondition(state, id, Date.now()); save(); renderConditions();
+    toast("お大事に。治ったで記録しました", () => { HK.reopenCondition(state, id); save(); renderConditions(); });
+  }
+});
+$("btnCondCancel").onclick = () => $("dlgCondition").close();
+$("btnCondSave").onclick = () => {
+  if(!condPicks.length){ toast("症状を選んでください"); return; }
+  const note = $("condNote").value.trim();
+  const ids = condPicks.map(i => { const p = HK.CONDITION_PRESETS[i]; return HK.addCondition(state, p.label, p.emoji, Date.now(), note); });
+  save(); renderConditions(); $("dlgCondition").close();
+  toast("体調を記録しました", () => { ids.forEach(id => HK.deleteCondition(state, id)); save(); renderConditions(); });
+};
+
+/* ================= Personal Context(自分のこと) ================= */
+function renderPersonalContext(){
+  const facts = (state.personalContext && state.personalContext.facts) || [];
+  $("pcFacts").innerHTML = facts.map(f =>
+    `<div class="pcrow"><input data-fact="${f.id}" value="${esc(f.text)}" maxlength="200">
+      ${f.source==="ai" ? '<span class="pcbadge" title="AIが抽出">🤖</span>' : ""}
+      <button type="button" class="rm" data-factdel="${f.id}" aria-label="削除">×</button></div>`).join("")
+    + `<div class="row2" style="margin-top:8px"><input id="pcAdd" placeholder="自分のことを追加 例: 花粉症 / 甘い物が好き" maxlength="200">
+       <button type="button" class="btn" id="btnPcAdd">追加</button></div>`;
+}
+document.addEventListener("click", (e) => {
+  const del = e.target.closest("button[data-factdel]");
+  if(del){ HK.deleteFact(state, del.dataset.factdel); save(); renderPersonalContext(); return; }
+  if(e.target.closest("#btnPcAdd")){
+    const v = $("pcAdd").value.trim();
+    if(v){ HK.addFact(state, v, "user"); save(); renderPersonalContext(); toast("追加しました"); }
+  }
+});
+
+/* ================= 健診画像: IndexedDB(端末内) ================= */
+const IDB_NAME = "hk-images", IDB_STORE = "img";
+function idbOpen(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => { if(!r.result.objectStoreNames.contains(IDB_STORE)) r.result.createObjectStore(IDB_STORE); };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbPut(id, blob){
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(blob, id);
+    tx.oncomplete = () => res(id); tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbGet(id){
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const rq = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(id);
+    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbDel(id){
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).delete(id);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbClear(){
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+function fileToBase64(file){
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1]);
+    r.onerror = () => rej(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+/* ================= 健診の読み込み(AI解析) ================= */
+let hcPendingFile = null, hcResult = null, hcPreviewUrl = null;
+function renderHealthChecks(){
+  const hcs = ((state.personalContext && state.personalContext.healthChecks) || []).slice().sort((a,b) => b.createdAt - a.createdAt);
+  $("hcList").innerHTML = hcs.map(h =>
+    `<div class="hcrow"><div class="body"><b>${esc(h.dateIso)}</b>
+      <div class="note">${esc(h.summary).slice(0,90)}${h.summary.length>90?"…":""}</div></div>
+      <button type="button" class="rm" data-hcdel="${h.id}" aria-label="削除">×</button></div>`).join("");
+}
+function clearHcStage(){
+  if(hcPreviewUrl){ URL.revokeObjectURL(hcPreviewUrl); hcPreviewUrl = null; }
+  hcPendingFile = null; hcResult = null; $("hcStage").innerHTML = "";
+}
+$("btnHcPick").onclick = () => $("hcFile").click();
+// テキスト入力: そのまま保存(外部送信なし)
+$("btnHcTextSave").onclick = () => {
+  const t = $("hcText").value.trim();
+  if(!t){ toast("健診結果を入力してください"); return; }
+  HK.addHealthCheck(state, { dateIso: lToday(), summary: t, values: null, imageId: null });
+  save(); $("hcText").value = ""; renderHealthChecks();
+  toast("健診結果を保存しました");
+};
+// テキスト入力: AIで整理して保存(Geminiにテキスト送信)
+async function analyzeHealthCheckText(){
+  const t = $("hcText").value.trim();
+  if(!t){ toast("健診結果を入力してください"); return; }
+  if(!state.settings.apiKey){ toast("設定でGemini APIキーを登録してください"); return; }
+  hcPendingFile = null; // テキスト経路は画像なし
+  renderHcStage("loading");
+  try{
+    const model = HK.resolveModel(state.settings);
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { method:"POST",
+        headers:{ "Content-Type":"application/json", "x-goog-api-key":state.settings.apiKey },
+        body: JSON.stringify(HK.buildHealthCheckTextRequestBody(t)) });
+    const bodyText = await resp.text();
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${bodyText.slice(0,600)}`);
+    const parsed = HK.parseHealthCheckResponse(JSON.parse(bodyText));
+    if(parsed.error) throw new Error(parsed.error + "\n" + (parsed.detail||"") + "\n応答: " + bodyText.slice(0,400));
+    hcResult = parsed.result; renderHcStage("review");
+  }catch(e){
+    renderHcStage("error", String(e && e.message || e));
+  }
+}
+$("btnHcTextAI").onclick = analyzeHealthCheckText;
+$("hcFile").onchange = (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  if(!f) return;
+  clearHcStage();
+  hcPendingFile = f; hcPreviewUrl = URL.createObjectURL(f);
+  renderHcStage("consent");
+};
+function renderHcStage(mode, extra){
+  const st = $("hcStage");
+  if(mode === "consent"){
+    st.innerHTML = `<div class="hcprev"><img src="${hcPreviewUrl}" alt="健診画像プレビュー"></div>
+      <p class="hcconsent">⚠️ 「解析」を押すと、この画像がGoogle(Gemini)に送信されます。よろしければ続けてください。</p>
+      <div class="row2"><button class="btn" id="btnHcClear">やめる</button>
+        <button class="btn primary" id="btnHcAnalyze" style="flex:1">🔍 Geminiで解析</button></div>`;
+    $("btnHcClear").onclick = clearHcStage;
+    $("btnHcAnalyze").onclick = analyzeHealthCheck;
+  } else if(mode === "loading"){
+    st.innerHTML = `<p class="note"><span class="spin">◐</span> 解析中…（画像を送信しています）</p>`;
+  } else if(mode === "review"){
+    const r = hcResult;
+    const vals = (r.values || []).filter(v => v && v.name).map(v =>
+      `${esc(v.name)} ${esc(v.value||"")}${v.flag && v.flag!=="-" ? `(${esc(v.flag)})` : ""}`).join(" / ");
+    st.innerHTML = `<div class="field"><label>受診日</label>
+        <input id="hcDate" value="${esc(r.date || lToday())}" placeholder="YYYY-MM-DD"></div>
+      <div class="field"><label>要約(修正できます)</label>
+        <textarea id="hcSummary" rows="4" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%">${esc(r.summary)}</textarea></div>
+      ${vals ? `<p class="note">読み取り値: ${vals}</p>` : ""}
+      <label class="hccheck"><input type="checkbox" id="hcAddFacts" checked> 要点をPersonal Contextにも追加(🤖)</label>
+      <div class="row2" style="margin-top:10px"><button class="btn" id="btnHcCancel">やめる</button>
+        <button class="btn primary" id="btnHcSave" style="flex:1">保存</button></div>`;
+    $("btnHcCancel").onclick = clearHcStage;
+    $("btnHcSave").onclick = saveHealthCheck;
+  } else if(mode === "error"){
+    st.innerHTML = `<details class="err" open><summary>解析に失敗しました(タップで詳細)</summary><pre>${esc(extra||"")}</pre></details>
+      <div class="row2" style="margin-top:8px"><button class="btn" id="btnHcClear2">とじる</button>
+        <button class="btn primary" id="btnHcRetry" style="flex:1">もう一度解析</button></div>`;
+    $("btnHcClear2").onclick = clearHcStage;
+    $("btnHcRetry").onclick = analyzeHealthCheck;
+  }
+}
+async function analyzeHealthCheck(){
+  if(!state.settings.apiKey){ toast("設定でGemini APIキーを登録してください"); return; }
+  if(!hcPendingFile){ return; }
+  renderHcStage("loading");
+  try{
+    const base64 = await fileToBase64(hcPendingFile);
+    const model = HK.resolveModel(state.settings);
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { method:"POST",
+        headers:{ "Content-Type":"application/json", "x-goog-api-key":state.settings.apiKey },
+        body: JSON.stringify(HK.buildHealthCheckRequestBody(base64, hcPendingFile.type)) });
+    const bodyText = await resp.text();
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${bodyText.slice(0,600)}`);
+    const parsed = HK.parseHealthCheckResponse(JSON.parse(bodyText));
+    if(parsed.error) throw new Error(parsed.error + "\n" + (parsed.detail||"") + "\n応答: " + bodyText.slice(0,400));
+    hcResult = parsed.result; renderHcStage("review");
+  }catch(e){
+    renderHcStage("error", String(e && e.message || e));
+  }
+}
+async function saveHealthCheck(){
+  const summary = $("hcSummary").value.trim();
+  const date = $("hcDate").value.trim() || lToday();
+  if(!summary){ toast("要約を入力してください"); return; }
+  let imageId = null;
+  if(hcPendingFile){ // 画像経路のみ端末内保存。テキスト経路は画像なし。
+    try{ imageId = "hc-" + HK.uid(); await idbPut(imageId, hcPendingFile); }
+    catch(e){ imageId = null; toast("画像の保存に失敗(要約のみ保存します)"); }
+  }
+  HK.addHealthCheck(state, { dateIso: date, summary, values: hcResult ? hcResult.values : null, imageId });
+  if($("hcAddFacts") && $("hcAddFacts").checked && hcResult && hcResult.facts)
+    hcResult.facts.forEach(f => HK.addFact(state, f, "ai"));
+  save(); clearHcStage();
+  if($("hcText")) $("hcText").value = "";
+  renderHealthChecks(); renderPersonalContext();
+  toast("健診結果を保存しました");
+}
+document.addEventListener("click", (e) => {
+  const del = e.target.closest("button[data-hcdel]");
+  if(!del) return;
+  const id = del.dataset.hcdel;
+  const hcs = (state.personalContext && state.personalContext.healthChecks) || [];
+  const hc = hcs.find(h => h.id === id);
+  if(hc && hc.imageId) idbDel(hc.imageId).catch(()=>{});
+  state.personalContext.healthChecks = hcs.filter(h => h.id !== id);
+  save(); renderHealthChecks();
+});
 
 /* ================= 履歴: 日ごとの編集 ================= */
 let editDate = null;
@@ -702,6 +1381,9 @@ function renderDayEditor(){
     <input data-note="${editDate}" value="${esc((state.checkin[editDate]||{}).note||"")}"
       placeholder="ひとことメモ(任意)" maxlength="80" style="margin:8px 0 2px">
     <div class="subh">💪 運動量</div><div class="seg">${exerciseRowHtml(editDate)}</div>
+    <input data-note="${editDate}" data-notefield="kirokuNote"
+      value="${esc((state.checkin[editDate]||{}).kirokuNote||"")}"
+      placeholder="食事・運動のメモ(任意)" maxlength="80" style="margin:10px 0 2px">
     <div class="subh">この日のログ(タップで修正・削除)</div>
     <ul class="log">${ev.length ? ev.map(eventLine).join("") : `<li class="empty">記録なし</li>`}</ul>
     <div class="subh">記録を追加(19時起点で入ります。時間はあとで調整)</div>
@@ -724,7 +1406,7 @@ function renderPeriodSeg(){
 }
 document.addEventListener("click", (e) => {
   const p = e.target.closest("button[data-period]");
-  if(p){ histPeriod = p.dataset.period; renderHistory(); }
+  if(p){ histPeriod = p.dataset.period; renderAnalysis(); }
 });
 
 const CW=520, CP=24;
@@ -732,7 +1414,10 @@ function svgOpen(h){ return `<svg class="chart" viewBox="0 0 ${CW} ${h}">`; }
 function xPos(i, n){ return CP + i * ((CW - 2*CP) / n); }
 
 function renderHistory(){
-  renderDayStrip(); renderDayEditor(); renderPeriodSeg();
+  renderDayStrip(); renderDayEditor();
+}
+function renderAnalysis(){
+  renderPlan(); renderReport(); renderPeriodSeg();
   const weekly = histPeriod === "12w";
   const n = histPeriod === "14d" ? 14 : histPeriod === "30d" ? 30 : 12;
   const step = histPeriod === "14d" ? 2 : histPeriod === "30d" ? 5 : 2;
@@ -826,8 +1511,24 @@ function renderHistory(){
 }
 
 /* ================= 設定 ================= */
-const CHIP_GROUPS = [["mealKinds","🍽 食事の種類"],["mealChips","🏪 食事の店"],["activityChips","🏃 運動の種類"]];
+const CHIP_GROUPS = [["mealChips","🏪 食事の店"],["activityChips","🏃 運動の種類"]];
 const TONE_DEFS = [["colleague","同僚"],["cheer","チア"],["analyst","アナリスト"]];
+let newKindTier = 2;
+function renderKindEditor(){
+  const marks = [[1,"🟢"],[2,"🟡"],[3,"🔴"]];
+  $("kindEditor").innerHTML = `<div class="field"><label>🍽 食事の種類(色=健康度)</label>
+    <div class="chiplist">${state.settings.mealKinds.map((k,i) =>
+      `<span class="chip ${TIER_CLS[k.tier]||"kN"}">
+        <button type="button" data-ktier="${i}" title="健康度を切替" style="color:var(--text);padding:0 6px 0 0">${TIER_MARK[k.tier]||"🟡"}</button>
+        ${k.emoji||"🍽"} ${esc(k.label)}
+        <button type="button" data-kdel="${i}" aria-label="${esc(k.label)}を削除">×</button></span>`).join("")}</div>
+    <input id="add-mealKinds" placeholder="種類を追加" maxlength="12">
+    <div style="display:flex; gap:8px; margin-top:6px; align-items:center">
+      <div class="miniseg" id="addKindTier">${marks.map(([t,m]) =>
+        `<button type="button" class="${newKindTier===t?"sel":""}" data-addktier="${t}">${m}</button>`).join("")}</div>
+      <button type="button" class="btn" data-kadd="1" style="flex:1">追加</button></div>
+    <p class="note">🟢🟡🔴タップで健康度を切替。追加時は左のマークで色を選択。</p></div>`;
+}
 function renderSettings(){
   $("inKey").value = state.settings.apiKey || "";
   $("inModel").value = state.settings.model || "";
@@ -835,6 +1536,9 @@ function renderSettings(){
   $("inProfile").value = state.settings.profile || "";
   $("toneSeg").innerHTML = TONE_DEFS.map(([k,lab]) =>
     `<button type="button" class="${(state.settings.tone||"colleague")===k?"sel":""}" data-tone="${k}">${lab}</button>`).join("");
+  renderKindEditor();
+  renderPersonalContext();
+  renderHealthChecks();
   $("chipEditors").innerHTML = CHIP_GROUPS.map(([key,title]) => `
     <div class="field"><label>${title}</label>
       <div class="chiplist">${state.settings[key].map((c,i) =>
@@ -846,6 +1550,29 @@ function renderSettings(){
 document.addEventListener("click", (e) => {
   const tn = e.target.closest("button[data-tone]");
   if(tn){ state.settings.tone = tn.dataset.tone; save(); renderSettings(); return; }
+  // 食事の種類エディタ
+  const ktier = e.target.closest("button[data-ktier]");
+  if(ktier){
+    const k = state.settings.mealKinds[+ktier.dataset.ktier];
+    k.tier = (k.tier % 3) + 1; save();
+    renderKindEditor(); renderChips(); return;
+  }
+  const kdel = e.target.closest("button[data-kdel]");
+  if(kdel){
+    state.settings.mealKinds.splice(+kdel.dataset.kdel, 1); save();
+    renderKindEditor(); renderChips(); return;
+  }
+  const kaddt = e.target.closest("button[data-addktier]");
+  if(kaddt){ newKindTier = +kaddt.dataset.addktier; renderKindEditor(); return; }
+  const kadd = e.target.closest("button[data-kadd]");
+  if(kadd){
+    const inp = $("add-mealKinds"), v = inp.value.trim();
+    if(v && !state.settings.mealKinds.some(k => k.label === v)){
+      state.settings.mealKinds.push({ label: v, emoji: HK.mealKindMeta(v).emoji, tier: newKindTier });
+      save(); renderKindEditor(); renderChips(); toast(`「${v}」を追加しました`);
+    } else if(v){ toast("同じ種類がすでにあります"); }
+    return;
+  }
   const del = e.target.closest("button[data-del]");
   if(del){
     const [key, i] = del.dataset.del.split(":");
@@ -907,19 +1634,22 @@ $("fileImport").onchange = (e) => {
 };
 $("btnWipe").onclick = () => {
   if(confirm("すべての記録・設定を削除します。この操作は取り消せません。よろしいですか?")){
-    localStorage.removeItem(LS_KEY); state = HK.emptyState(); renderAll(); toast("削除しました");
+    localStorage.removeItem(LS_KEY);
+    idbClear().catch(()=>{}); // 健診画像(IndexedDB)も消す
+    state = HK.emptyState(); renderAll(); toast("削除しました");
   }
 };
 
 /* ================= ルーター / 初期化 ================= */
 function route(){
   const v = (location.hash || "#home").slice(1);
-  ["home","history","settings"].forEach(x => {
+  ["home","history","analysis","settings"].forEach(x => {
     $("view-"+x).classList.toggle("hidden", x!==v);
     document.querySelector(`nav a[data-v="${x}"]`).classList.toggle("on", x===v);
   });
-  if(v === "home"){ logTargetDate = null; }
+  if(v === "home" || v === "analysis"){ logTargetDate = null; }
   if(v === "history") renderHistory();
+  if(v === "analysis") renderAnalysis();
   if(v === "settings") renderSettings();
 }
 window.addEventListener("hashchange", route);
@@ -930,7 +1660,7 @@ function renderAll(){
   const d = new Date(iso + "T12:00:00");
   const late = now.getHours() < 4 ? "(深夜)" : "";
   $("hDate").textContent = `${d.getMonth()+1}月${d.getDate()}日(${"月火水木金土日"[(d.getDay()+6)%7]})${late}`;
-  renderSleep(); renderCheckinHome(); renderChips(); renderTodayLog(); renderReport(); route();
+  renderSleep(); renderCheckinHome(); renderConditions(); renderChips(); renderTodayLog(); renderFab(); route();
 }
 
 function handleWakeResult(r){
@@ -949,11 +1679,13 @@ function handleWakeResult(r){
   save();
   renderAll();
   handleWakeResult(r);
+  maybeShowWeekend();
   document.addEventListener("click", () => { HK.touch(state, Date.now()); save(); }, true);
   document.addEventListener("visibilitychange", () => {
     if(document.visibilityState === "visible"){
       const r2 = HK.resolveWakeOnOpen(state, Date.now());
       if(r2.kind !== "none"){ renderAll(); handleWakeResult(r2); }
+      maybeShowWeekend();
     }
     HK.touch(state, Date.now()); save();
   });
