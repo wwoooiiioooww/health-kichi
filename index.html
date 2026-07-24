@@ -173,6 +173,18 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 .selitem .rm{color:var(--bad); font-weight:700; padding:0 6px; font-size:17px}
 .evtier{margin:12px 0 2px}
 
+/* 計画: 週次目標 */
+.goalrow{margin:12px 0}
+.goalhead{font-size:13px; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; gap:6px}
+.goalhead small{color:var(--muted); font-weight:400}
+.goalprog{margin-left:auto; font-size:13px; font-weight:700; color:var(--muted)}
+.goalprog.met{color:var(--good)}
+.goalopts{display:flex; flex-wrap:wrap; gap:6px}
+.goalopt{padding:8px 12px; background:var(--surface2); border:1px solid var(--line); border-radius:999px;
+  font-size:13px; font-weight:600}
+.goalopt.sel{background:var(--moon); color:#101828; border-color:var(--moon)}
+.goalopt:active{transform:scale(.95)}
+
 /* FAB(全タブ右下) */
 .fab{position:fixed; right:16px; bottom:calc(84px + env(safe-area-inset-bottom)); width:56px; height:56px;
   border-radius:50%; background:var(--moon); color:#101828; font-size:26px; font-weight:700;
@@ -230,8 +242,9 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
     </div>
   </section>
 
-  <!-- ============ 分析(グラフ・レポート) ============ -->
+  <!-- ============ 分析(計画・グラフ・レポート) ============ -->
   <section id="view-analysis" class="hidden">
+    <div class="card" id="planCard"></div>
     <div class="card report" id="reportCard"></div>
     <div class="card" style="padding:12px 18px">
       <div class="seg" id="periodSeg"></div>
@@ -342,6 +355,17 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   <div class="row2" style="margin-top:16px">
     <button class="btn" id="btnMealCancel">やめる</button>
     <button class="btn primary" id="btnMealSave" style="flex:1">記録する</button>
+  </div>
+</dialog>
+
+<dialog id="dlgWeekend">
+  <h3 style="font-size:16px; margin-bottom:12px">🗓 週末のふりかえり</h3>
+  <div id="weekendSummary"></div>
+  <div id="weekendNudge"></div>
+  <div class="subh">来週の目標(<span id="weekendRange"></span>) — タップで設定・任意</div>
+  <div id="weekendGoals"></div>
+  <div class="row2" style="margin-top:16px">
+    <button class="btn primary" id="btnWeekendClose" style="flex:1">これで来週いく</button>
   </div>
 </dialog>
 
@@ -914,6 +938,85 @@ async function generateReport(){
   renderReport();
 }
 
+/* ================= 計画: 週次目標 ================= */
+const GOAL_DEFS = [
+  { f:"sleepMin", icon:"😴", label:"睡眠(毎晩平均)", dir:"以上",
+    opts:[[360,"6h"],[390,"6.5h"],[420,"7h"],[450,"7.5h"],[480,"8h"],[510,"8.5h"]],
+    prog:(p)=>p.sleepAvgMin, met:(c,g)=>c!=null&&c>=g,
+    fmt:(v)=>v==null?"—":`${Math.floor(v/60)}h${String(v%60).padStart(2,"0")}m` },
+  { f:"greenDays", icon:"🟢", label:"体にいい食事", dir:"日/週 以上",
+    opts:[[2,"2日"],[3,"3日"],[4,"4日"],[5,"5日"],[6,"6日"],[7,"毎日"]],
+    prog:(p)=>p.greenDays, met:(c,g)=>c>=g, fmt:(v)=>`${v}日` },
+  { f:"exerciseDays", icon:"💪", label:"運動した日", dir:"日/週 以上",
+    opts:[[2,"2日"],[3,"3日"],[4,"4日"],[5,"5日"],[6,"6日"],[7,"毎日"]],
+    prog:(p)=>p.exerciseDays, met:(c,g)=>c>=g, fmt:(v)=>`${v}日` },
+  { f:"junkMax", icon:"🔴", label:"ジャンクを抑える", dir:"回/週 まで",
+    opts:[[0,"0回"],[1,"1回"],[2,"2回"],[3,"3回"],[5,"5回"]],
+    prog:(p)=>p.junkCount, met:(c,g)=>c<=g, fmt:(v)=>`${v}回` },
+  { f:"lateCoffeeMax", icon:"☕", label:"21時以降コーヒー", dir:"回/週 まで",
+    opts:[[0,"0回"],[1,"1回"],[2,"2回"],[3,"3回"]],
+    prog:(p)=>p.lateCoffee, met:(c,g)=>c<=g, fmt:(v)=>`${v}回` }
+];
+function goalRowHtml(def, weekIso, prog){
+  const set = HK.getGoal(state, weekIso)[def.f];
+  const chips = def.opts.map(([v,lab]) =>
+    `<button type="button" class="goalopt ${set===v?"sel":""}" data-goal="${def.f}:${v}:${weekIso}">${lab}</button>`).join("");
+  let progHtml = "";
+  if(prog && set != null){
+    const cur = def.prog(prog), ok = def.met(cur, set);
+    progHtml = `<span class="goalprog ${ok?"met":""}">${def.fmt(cur)}${ok?" ✓":""}</span>`;
+  }
+  return `<div class="goalrow"><div class="goalhead">${def.icon} ${def.label} <small>${def.dir}</small>${progHtml}</div>
+    <div class="goalopts">${chips}</div></div>`;
+}
+function renderGoals(weekIso, prog){ return GOAL_DEFS.map(d => goalRowHtml(d, weekIso, prog)).join(""); }
+function renderPlan(){
+  const wk = HK.weekStartIso(Date.now());
+  const prog = HK.weekProgress(state, Date.now());
+  const has = Object.keys(HK.getGoal(state, wk)).length > 0;
+  $("planCard").innerHTML = `<h2>今週の目標 <span style="font-weight:400">(${weekRangeLabel(wk)})</span></h2>`
+    + (has ? "" : `<p class="note" style="margin-bottom:4px">目標をタップで設定(任意・いつでも変更OK)。ストイックに攻めるのも自由です。</p>`)
+    + renderGoals(wk, prog);
+}
+document.addEventListener("click", (e) => {
+  const g = e.target.closest("button[data-goal]");
+  if(!g) return;
+  const [f, v, wk] = g.dataset.goal.split(":");
+  const cur = HK.getGoal(state, wk)[f];
+  HK.setGoal(state, wk, f, cur === +v ? null : +v); save();
+  renderPlan();
+  if($("dlgWeekend").open) renderWeekend();
+});
+
+/* 週末ポップアップ(土12時以降/日に1回だけ・追撃しない) */
+function nextWeekIso(){
+  const wk = HK.weekStartIso(Date.now());
+  return HK.dateIso(new Date(wk + "T12:00:00").getTime() + 7 * 86400000);
+}
+function renderWeekend(){
+  const nwk = nextWeekIso();
+  const prog = HK.weekProgress(state, Date.now());
+  const stats = statsRowHtml();
+  $("weekendSummary").innerHTML = `<div class="subh" style="margin-top:0">今週の記録</div>`
+    + (stats || `<p class="note">今週はまだ記録が少なめです。</p>`);
+  $("weekendNudge").innerHTML = prog.recordedSleepDays < 4
+    ? `<p class="note">睡眠の記録は今週${prog.recordedSleepDays}日ぶんです。もう少し貯まるとレポートの精度が上がります。</p>` : "";
+  $("weekendRange").textContent = weekRangeLabel(nwk);
+  $("weekendGoals").innerHTML = renderGoals(nwk, null);
+}
+function weekendDue(nowMs){
+  const d = new Date(nowMs), dow = d.getDay();
+  const isWeekend = (dow === 6 && d.getHours() >= 12) || dow === 0;
+  return isWeekend && state.lastGoalPromptWeek !== HK.weekStartIso(nowMs);
+}
+function maybeShowWeekend(){
+  if(document.querySelector("dialog[open]")) return;
+  if(!weekendDue(Date.now())) return;
+  state.lastGoalPromptWeek = HK.weekStartIso(Date.now()); save();
+  renderWeekend(); $("dlgWeekend").showModal();
+}
+$("btnWeekendClose").onclick = () => $("dlgWeekend").close();
+
 /* ================= 履歴: 日ごとの編集 ================= */
 let editDate = null;
 function renderDayStrip(){
@@ -981,7 +1084,7 @@ function renderHistory(){
   renderDayStrip(); renderDayEditor();
 }
 function renderAnalysis(){
-  renderReport(); renderPeriodSeg();
+  renderPlan(); renderReport(); renderPeriodSeg();
   const weekly = histPeriod === "12w";
   const n = histPeriod === "14d" ? 14 : histPeriod === "30d" ? 30 : 12;
   const step = histPeriod === "14d" ? 2 : histPeriod === "30d" ? 5 : 2;
@@ -1239,11 +1342,13 @@ function handleWakeResult(r){
   save();
   renderAll();
   handleWakeResult(r);
+  maybeShowWeekend();
   document.addEventListener("click", () => { HK.touch(state, Date.now()); save(); }, true);
   document.addEventListener("visibilitychange", () => {
     if(document.visibilityState === "visible"){
       const r2 = HK.resolveWakeOnOpen(state, Date.now());
       if(r2.kind !== "none"){ renderAll(); handleWakeResult(r2); }
+      maybeShowWeekend();
     }
     HK.touch(state, Date.now()); save();
   });

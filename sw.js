@@ -1,7 +1,7 @@
-/* ヘルスきち Service Worker v6
+/* ヘルスきち Service Worker v7
  * 自動更新対応: アプリシェル(index.html / core.js)はネットワーク優先で常に最新を取り、
  * オフライン時のみキャッシュにフォールバックする。それ以外はキャッシュ優先。 */
-const CACHE = "hk-v8";
+const CACHE = "hk-v9";
 const ASSETS = ["./", "./index.html", "./core.js", "./manifest.webmanifest",
                 "./icon-192.png", "./icon-512.png"];
 const FRESH = /(\/$|index\.html$|core\.js$|manifest\.webmanifest$)/;

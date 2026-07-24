@@ -156,11 +156,12 @@ test("buildGeminiPayload: meal_tier_countsが種類別に集計", () => {
 });
 
 // ================= migrate(後方互換・非破壊) =================
-test("migrate: 空でも現行スキーマ(v6)に整う", () => {
+test("migrate: 空でも現行スキーマ(v7)に整う", () => {
   const s = HK.migrate({});
-  assertEq(s.version, 6);
+  assertEq(s.version, 7);
   assert(Array.isArray(s.events));
   assert(s.settings && Array.isArray(s.settings.mealKinds));
+  assert(s.goals && typeof s.goals === "object");
 });
 test("migrate: 旧イベント型の変換", () => {
   const s = HK.migrate({
@@ -259,7 +260,7 @@ test("migrate: v5 string配列 → object配列(非破壊・カスタム保持)"
   const s = HK.migrate({ version: 5, settings: { mealKinds: ["サラダ・野菜", "自作カレー"] } });
   assertEq(s.settings.mealKinds[0], { label: "サラダ・野菜", emoji: "🥗", tier: 1 });
   assertEq(s.settings.mealKinds[1], { label: "自作カレー", emoji: "🍽", tier: 2 });
-  assertEq(s.version, 6);
+  assertEq(s.version, 7);
 });
 test("migrate: 旧mealKinds既定 → 新カタログ(10種)へ差し替え", () => {
   const s = HK.migrate({ settings: { mealKinds: HK.LEGACY_MEAL_KINDS_V5.slice() } });
@@ -274,6 +275,58 @@ test("migrate: object配列は冪等(2回でも壊れない)・placeも保持", 
   const twice = HK.migrate(JSON.parse(JSON.stringify(once)));
   assertEq(twice, once);
   assertEq(twice.events[0].place, "スシロー");
+});
+
+// ================= Phase3: 週次目標(計画) =================
+test("setGoal/getGoal: 許可フィールドのみ・null で解除・空週は削除", () => {
+  const s = HK.emptyState();
+  assert(HK.setGoal(s, "2026-07-20", "sleepMin", 420));
+  assert(HK.setGoal(s, "2026-07-20", "greenDays", 5));
+  assertEq(HK.getGoal(s, "2026-07-20"), { sleepMin: 420, greenDays: 5 });
+  assert(!HK.setGoal(s, "2026-07-20", "weight", 70), "未知フィールドは拒否");
+  HK.setGoal(s, "2026-07-20", "sleepMin", null); // 解除
+  assertEq(HK.getGoal(s, "2026-07-20"), { greenDays: 5 });
+  HK.setGoal(s, "2026-07-20", "greenDays", null); // 空になったら週キー削除
+  assertEq(s.goals["2026-07-20"], undefined);
+  assertEq(HK.getGoal(s, "2026-07-20"), {});
+});
+test("weekProgress: 現在週の実績を集計", () => {
+  const s = HK.emptyState();
+  const now = at(2026, 7, 22, 20, 0); // 水曜(週初=7/20月)
+  HK.setSleepManual(s, "2026-07-20", at(2026, 7, 19, 23, 0), at(2026, 7, 20, 7, 0)); // 8h
+  HK.setSleepManual(s, "2026-07-21", at(2026, 7, 20, 23, 0), at(2026, 7, 21, 6, 0)); // 7h
+  HK.logEvent(s, "MEAL", "魚", at(2026, 7, 20, 20, 0), 1);   // green day
+  HK.logEvent(s, "MEAL", "デザート", at(2026, 7, 21, 20, 0), 3); // junk
+  HK.setExercise(s, "2026-07-22", 2);
+  HK.logEvent(s, "COFFEE", null, at(2026, 7, 21, 22, 0)); // late coffee
+  const p = HK.weekProgress(s, now);
+  assertEq(p.weekStartIso, "2026-07-20");
+  assertEq(p.sleepAvgMin, 450); // (480+420)/2
+  assertEq(p.recordedSleepDays, 2);
+  assertEq(p.greenDays, 1);
+  assertEq(p.exerciseDays, 1);
+  assertEq(p.junkCount, 1);
+  assertEq(p.lateCoffee, 1);
+});
+test("weekProgress: 記録なしはnull/0(0で埋めない)", () => {
+  const s = HK.emptyState();
+  const p = HK.weekProgress(s, at(2026, 7, 20, 10, 0)); // 月曜
+  assertEq(p.sleepAvgMin, null);
+  assertEq(p.recordedSleepDays, 0);
+  assertEq(p.greenDays, 0);
+});
+test("migrate: goals/lastGoalPromptWeek を保持(往復非破壊)", () => {
+  const s0 = HK.emptyState();
+  HK.setGoal(s0, "2026-07-20", "sleepMin", 420);
+  s0.lastGoalPromptWeek = "2026-07-20";
+  const round = HK.migrate(JSON.parse(JSON.stringify(s0)));
+  assertEq(round.goals["2026-07-20"], { sleepMin: 420 });
+  assertEq(round.lastGoalPromptWeek, "2026-07-20");
+});
+test("migrate: v6以前(goalsキー無し)にgoalsを補完", () => {
+  const s = HK.migrate({ version: 6, events: [] });
+  assert(s.goals && typeof s.goals === "object");
+  assertEq(s.lastGoalPromptWeek, null);
 });
 
 // ================= 結果 =================

@@ -102,12 +102,14 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 6,
+  version: 7,
   events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label(=種類), tier(MEALのみ1-3), place(MEALの店・任意)}
   nextEventId: 1,
   sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
   checkin: {},         // 論理日 -> {mood?:1-5, focus?:1-4, irritation?:0-3}
   exercise: {},        // 論理日 -> 0-3 (全然/すこし/ふつう/たくさん)
+  goals: {},           // 週(月曜ISO) -> {sleepMin?, greenDays?, exerciseDays?, junkMax?, lateCoffeeMax?}
+  lastGoalPromptWeek: null, // 週末ポップアップを週1回に制限
   reports: [],
   settings: {
     apiKey: "",
@@ -167,7 +169,7 @@ HK.migrate = (s) => {
       });
     }
   }
-  s.version = 6;
+  s.version = 7;
   return s;
 };
 
@@ -375,6 +377,45 @@ HK.buildPastWeeks = (state, endMs, nWeeks) => {
     });
   }
   return weeks;
+};
+
+// ---------------- 週次目標(計画) ----------------
+
+HK.GOAL_FIELDS = ["sleepMin", "greenDays", "exerciseDays", "junkMax", "lateCoffeeMax"];
+
+/** 週(月曜ISO)の目標を設定。value==null で解除。空になった週はキー自体を削除。 */
+HK.setGoal = (state, weekIso, field, value) => {
+  if (!HK.GOAL_FIELDS.includes(field)) return false;
+  if (!state.goals) state.goals = {};
+  if (!state.goals[weekIso]) state.goals[weekIso] = {};
+  if (value == null) delete state.goals[weekIso][field];
+  else state.goals[weekIso][field] = value;
+  if (Object.keys(state.goals[weekIso]).length === 0) delete state.goals[weekIso];
+  return true;
+};
+
+HK.getGoal = (state, weekIso) => (state.goals && state.goals[weekIso]) || {};
+
+/** 現在週(月曜〜その日)の実績を集計。目標との突き合わせはUI側で行う。 */
+HK.weekProgress = (state, nowMs) => {
+  const weekStart = HK.weekStartIso(nowMs);
+  const todayIso = HK.logicalDateIso(nowMs);
+  const startMs = new Date(weekStart + "T12:00:00").getTime();
+  const todayMs = new Date(todayIso + "T12:00:00").getTime();
+  const nDays = Math.max(1, Math.min(7, Math.floor((todayMs - startMs) / 86400000) + 1));
+  const days = HK.buildDaySummaries(state, nowMs, nDays).filter((d) => d.dateIso >= weekStart);
+  const sleepVals = days.map((d) => d.sleepDurationMin).filter((v) => v != null);
+  const coffee = [].concat(...days.map((d) => d.coffeeTimesHHmm));
+  return {
+    weekStartIso: weekStart,
+    daysElapsed: days.length,
+    sleepAvgMin: sleepVals.length ? Math.round(sleepVals.reduce((a, b) => a + b, 0) / sleepVals.length) : null,
+    recordedSleepDays: sleepVals.length,
+    greenDays: days.filter((d) => d.meals.some((m) => m.tier === 1)).length,
+    exerciseDays: days.filter((d) => d.exercise != null && d.exercise >= 1).length,
+    junkCount: days.reduce((a, d) => a + d.meals.filter((m) => m.tier === 3).length, 0),
+    lateCoffee: HK.countLateCoffee(coffee)
+  };
 };
 
 HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
