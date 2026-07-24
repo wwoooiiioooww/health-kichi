@@ -176,21 +176,27 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
       <div class="subh">🏃 運動(その場で)</div><div class="chips g3" id="activityChips"></div>
       <div class="subh">💪 今日の運動量</div>
       <div class="seg" id="exHome"></div>
+      <input id="noteKiroku" data-note="" data-notefield="kirokuNote"
+        placeholder="食事・運動のメモ(任意) 例: 外食続き / 久々に運動" maxlength="80" style="margin-top:12px">
     </div>
     <div class="card">
       <h2>今日のログ <span style="font-weight:400">(タップで時間修正・削除)</span></h2>
       <ul class="log" id="todayLog"></ul>
     </div>
-    <div class="card report" id="reportCard"></div>
   </section>
 
-  <!-- ============ 履歴 ============ -->
+  <!-- ============ 履歴(修正系) ============ -->
   <section id="view-history" class="hidden">
     <div class="card">
       <h2>日ごとの編集(直近7日)</h2>
       <div class="daystrip" id="dayStrip"></div>
       <div id="dayEditor"></div>
     </div>
+  </section>
+
+  <!-- ============ 分析(グラフ・レポート) ============ -->
+  <section id="view-analysis" class="hidden">
+    <div class="card report" id="reportCard"></div>
     <div class="card" style="padding:12px 18px">
       <div class="seg" id="periodSeg"></div>
     </div>
@@ -244,17 +250,19 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 
 <nav>
   <a href="#home" data-v="home"><span class="ic">🌙</span>ホーム</a>
-  <a href="#history" data-v="history"><span class="ic">📈</span>履歴</a>
+  <a href="#history" data-v="history"><span class="ic">✏️</span>履歴</a>
+  <a href="#analysis" data-v="analysis"><span class="ic">📈</span>分析</a>
   <a href="#settings" data-v="settings"><span class="ic">⚙️</span>設定</a>
 </nav>
 
 <div id="toast"><span id="toastMsg"></span><button id="toastUndo" class="hidden">取り消す</button></div>
 
 <dialog id="dlgSleep">
-  <h3 style="font-size:16px; margin-bottom:14px" id="dlgSleepTitle">睡眠を記録</h3>
-  <div class="field"><label>寝た時刻</label>
+  <h3 style="font-size:16px; margin-bottom:4px" id="dlgSleepTitle">睡眠を記録</h3>
+  <p class="note" id="dlgSleepFlow" style="margin-bottom:14px"></p>
+  <div class="field"><label>🌙 寝た時刻 <span class="note" id="lblBedDate"></span></label>
     <div class="timepick"><select id="inBedH"></select><span class="colon">:</span><select id="inBedM"></select></div></div>
-  <div class="field"><label>起きた時刻</label>
+  <div class="field"><label>☀️ 起きた時刻 <span class="note" id="lblWakeDate"></span></label>
     <div class="timepick"><select id="inWakeH"></select><span class="colon">:</span><select id="inWakeM"></select></div></div>
   <p class="note">寝た時刻が起きた時刻より遅い場合は前日の夜として扱います。</p>
   <div class="row2" style="margin-top:14px">
@@ -382,7 +390,13 @@ let dlgTarget = null;
 function openSleepDialog(dateIso, existing){
   initTimePickers();
   dlgTarget = dateIso;
-  $("dlgSleepTitle").textContent = (existing ? "睡眠を修正" : "睡眠を記録") + `(${dateIso.slice(5).replace("-","/")}起床)`;
+  const wd = new Date(dateIso + "T12:00:00");
+  const bd = new Date(wd.getTime() - 86400000);
+  const md = (d) => `${d.getMonth()+1}/${d.getDate()}(${"月火水木金土日"[(d.getDay()+6)%7]})`;
+  $("dlgSleepTitle").textContent = existing ? "睡眠を修正" : "昨夜の睡眠を記録";
+  $("dlgSleepFlow").textContent = `${md(bd)}の夜 → ${md(wd)}の朝 に起きた睡眠です`;
+  $("lblBedDate").textContent = `(${bd.getMonth()+1}/${bd.getDate()} 夜)`;
+  $("lblWakeDate").textContent = `(${wd.getMonth()+1}/${wd.getDate()} 朝)`;
   setPicker("inBedH","inBedM", existing ? HK.parseHHmm(HK.hhmm(existing.bed)) : 30);
   setPicker("inWakeH","inWakeM", existing ? HK.parseHHmm(HK.hhmm(existing.wake)) : 6*60+30);
   $("dlgSleep").showModal();
@@ -425,11 +439,15 @@ function renderCheckinHome(){
   const n = $("noteHome");
   n.dataset.note = lToday();
   n.value = (state.checkin[lToday()] || {}).note || "";
+  const k = $("noteKiroku");
+  k.dataset.note = lToday();
+  k.value = (state.checkin[lToday()] || {}).kirokuNote || "";
 }
 document.addEventListener("change", (e) => {
   const t = e.target;
   if(t.matches && t.matches("input[data-note]")){
-    HK.setCheckin(state, t.dataset.note, "note", t.value.trim()); save();
+    const field = t.dataset.notefield || "note";
+    HK.setCheckin(state, t.dataset.note, field, t.value.trim()); save();
     if(t.value.trim()) toast("メモを保存しました");
   }
 });
@@ -702,6 +720,9 @@ function renderDayEditor(){
     <input data-note="${editDate}" value="${esc((state.checkin[editDate]||{}).note||"")}"
       placeholder="ひとことメモ(任意)" maxlength="80" style="margin:8px 0 2px">
     <div class="subh">💪 運動量</div><div class="seg">${exerciseRowHtml(editDate)}</div>
+    <input data-note="${editDate}" data-notefield="kirokuNote"
+      value="${esc((state.checkin[editDate]||{}).kirokuNote||"")}"
+      placeholder="食事・運動のメモ(任意)" maxlength="80" style="margin:10px 0 2px">
     <div class="subh">この日のログ(タップで修正・削除)</div>
     <ul class="log">${ev.length ? ev.map(eventLine).join("") : `<li class="empty">記録なし</li>`}</ul>
     <div class="subh">記録を追加(19時起点で入ります。時間はあとで調整)</div>
@@ -724,7 +745,7 @@ function renderPeriodSeg(){
 }
 document.addEventListener("click", (e) => {
   const p = e.target.closest("button[data-period]");
-  if(p){ histPeriod = p.dataset.period; renderHistory(); }
+  if(p){ histPeriod = p.dataset.period; renderAnalysis(); }
 });
 
 const CW=520, CP=24;
@@ -732,7 +753,10 @@ function svgOpen(h){ return `<svg class="chart" viewBox="0 0 ${CW} ${h}">`; }
 function xPos(i, n){ return CP + i * ((CW - 2*CP) / n); }
 
 function renderHistory(){
-  renderDayStrip(); renderDayEditor(); renderPeriodSeg();
+  renderDayStrip(); renderDayEditor();
+}
+function renderAnalysis(){
+  renderReport(); renderPeriodSeg();
   const weekly = histPeriod === "12w";
   const n = histPeriod === "14d" ? 14 : histPeriod === "30d" ? 30 : 12;
   const step = histPeriod === "14d" ? 2 : histPeriod === "30d" ? 5 : 2;
@@ -914,12 +938,13 @@ $("btnWipe").onclick = () => {
 /* ================= ルーター / 初期化 ================= */
 function route(){
   const v = (location.hash || "#home").slice(1);
-  ["home","history","settings"].forEach(x => {
+  ["home","history","analysis","settings"].forEach(x => {
     $("view-"+x).classList.toggle("hidden", x!==v);
     document.querySelector(`nav a[data-v="${x}"]`).classList.toggle("on", x===v);
   });
-  if(v === "home"){ logTargetDate = null; }
+  if(v === "home" || v === "analysis"){ logTargetDate = null; }
   if(v === "history") renderHistory();
+  if(v === "analysis") renderAnalysis();
   if(v === "settings") renderSettings();
 }
 window.addEventListener("hashchange", route);
@@ -930,7 +955,7 @@ function renderAll(){
   const d = new Date(iso + "T12:00:00");
   const late = now.getHours() < 4 ? "(深夜)" : "";
   $("hDate").textContent = `${d.getMonth()+1}月${d.getDate()}日(${"月火水木金土日"[(d.getDay()+6)%7]})${late}`;
-  renderSleep(); renderCheckinHome(); renderChips(); renderTodayLog(); renderReport(); route();
+  renderSleep(); renderCheckinHome(); renderChips(); renderTodayLog(); route();
 }
 
 function handleWakeResult(r){

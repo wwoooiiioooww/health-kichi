@@ -181,7 +181,7 @@ HK.setSleepManual = (state, dateIso, bedMs, wakeMs) => {
 // ---------------- チェックイン・運動量 ----------------
 
 HK.setCheckin = (state, dateIso, field, value) => {
-  if (!["mood", "focus", "irritation", "note"].includes(field)) return false;
+  if (!["mood", "focus", "irritation", "note", "kirokuNote"].includes(field)) return false;
   if (!state.checkin[dateIso]) state.checkin[dateIso] = {};
   state.checkin[dateIso][field] = value;
   return true;
@@ -287,6 +287,7 @@ HK.buildDaySummaries = (state, endMs, nDays) => {
       bedTimeHHmm: sl ? HK.hhmm(sl.bed) : null,
       wakeTimeHHmm: sl ? HK.hhmm(sl.wake) : null,
       note: ck.note ? String(ck.note).slice(0, 80) : null,
+      kirokuNote: ck.kirokuNote ? String(ck.kirokuNote).slice(0, 80) : null,
       coffeeTimesHHmm: of("COFFEE").map((e) => HK.hhmm(e.t)),
       coffeePlaces: of("COFFEE").map((e) => e.label).filter(Boolean),
       meals: meals.map((e) => ({ tier: e.tier || 2, place: e.label })),
@@ -349,7 +350,7 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment) => {
       meals: d.meals.map((m) => ({ tier: HK.MEAL_TIERS[m.tier], place: m.place })),
       activities: d.activityLabels, no_meal: d.noMeal,
       mood: d.mood, focus: d.focus, irritation: d.irritation, exercise: d.exercise,
-      note: d.note
+      note: d.note, kiroku_note: d.kirokuNote
     })),
     past_weeks: pastWeeks.map((w) => ({
       week_start: w.weekStartIso, sleep_avg_min: w.sleepAvgMin,
@@ -394,6 +395,7 @@ HK.DEFAULT_PROFILE = [
   "  21時以降のカフェインが睡眠を阻害する自覚あり。",
   "- 睡眠には眠りの質 sleep_quality(1=あさい/2=ふつう/3=ぐっすり)の自己評価が付くことがある。",
   "- note はその日のひとことメモ(任意)。文脈として重視してよい(例:「終日客先」「プレッシャーが強い」)。",
+  "- kiroku_note は食事・運動まわりの補足メモ(任意。例:「外食続き」「食べ過ぎた」「久々に運動」)。",
   "- 夜のチェックイン: mood 気分(1-5) / focus 仕事のはかどり(1-4) / irritation イラッと度(0-3)。",
   "- exercise はその日の運動量の自己評価(0=全然〜3=たくさん)。activitiesは階段・散歩などの瞬間記録。",
   "- 睡眠不足がイライラと集中力低下に直結する。改善の最優先ターゲットは睡眠。",
