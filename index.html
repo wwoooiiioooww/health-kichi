@@ -409,6 +409,10 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
   <h3 style="font-size:16px; margin-bottom:12px" id="dlgMealTitle">まとめて記録</h3>
   <div class="subh" style="margin-top:0">対象日</div>
   <div class="chips" id="mealDayBtns"></div>
+  <div id="mealDoneWrap" class="hidden">
+    <div class="subh">追加ずみ</div>
+    <div id="mealDone"></div>
+  </div>
   <div class="subh">だいたいの時間</div>
   <div class="chips g3" id="mealSlotBtns"></div>
   <div class="subh">食べたもの(複数OK・色=健康度)</div>
@@ -419,7 +423,8 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
   </div>
   <div class="subh">🏪 店(任意)</div>
   <div class="chips g3" id="mealStoreBtns"></div>
-  <div class="row2" style="margin-top:16px">
+  <button type="button" class="btn-cond" id="btnMealAddSlot">＋ 別の時間帯を追加</button>
+  <div class="row2" style="margin-top:14px">
     <button class="btn" id="btnMealCancel">やめる</button>
     <button class="btn primary" id="btnMealSave" style="flex:1">記録する</button>
   </div>
@@ -659,8 +664,10 @@ function renderLogModeSeg(){
 function renderMealEntry(){
   const mode = state.settings.logMode || "batch";
   if(mode === "quick"){
-    $("mealEntry").innerHTML = `<div class="chips g3 tier">` + TIERS.map(([t,lab,cls]) =>
-      `<button type="button" class="${cls}" data-tier="${t}">${lab}</button>`).join("") + `</div>`;
+    // まとめ記録と同じ「食べたもの(色付き)」から始める。1タップで即記録し、健康度は自動。
+    $("mealEntry").innerHTML = `<div class="chips g3">` + state.settings.mealKinds.map((k,idx) =>
+      `<button type="button" class="kind ${TIER_CLS[k.tier]||"kN"}" data-quickkind="${idx}">${k.emoji||"🍽"} ${esc(k.label)}</button>`).join("")
+      + `</div><p class="note" style="margin-top:6px">タップで今の時刻に記録。健康度は自動で付き、ログをタップで直せます。</p>`;
   } else {
     $("mealEntry").innerHTML = `<button type="button" class="btn-meal-add" id="btnMealAdd">＋ まとめて記録</button>`;
     hidePlaceRow();
@@ -683,6 +690,17 @@ function logAt(type, label, tier){
 }
 let placeTimer = null;
 document.addEventListener("click", (e) => {
+  // 都度記録: 種類を1タップ → 即記録(健康度は自動) → 店は任意
+  const qk = e.target.closest("button[data-quickkind]");
+  if(qk){
+    const k = state.settings.mealKinds[+qk.dataset.quickkind];
+    if(!k) return;
+    const id = logAt("MEAL", k.label, k.tier || 2);
+    toast(`${TIER_MARK[k.tier||2]} ${k.label} を記録`,
+      () => { HK.deleteEventById(state, id); save(); renderTodayLog(); renderDayEditor(); hidePlaceRow(); });
+    showPlaceRow(id, true); // 種類は確定済みなので店だけ聞く
+    return;
+  }
   const tb = e.target.closest("button[data-tier]");
   if(tb){
     const tier = +tb.dataset.tier;
@@ -817,9 +835,12 @@ $("btnEvSave").onclick = () => {
   renderTodayLog(); renderDayEditor(); $("dlgEvent").close(); toast("修正しました");
 };
 
-/* ================= まとめて記録(バッチ入力) ================= */
-let mealDraft = null; // {dayIso, slotMin, items:[{label,emoji,tier}], store}
+/* ================= まとめて記録(1日の中の複数時間帯をまとめて) =================
+ * 「まとめて」= 1日の昼と夜など複数の食事を一度に入れること。
+ * 過去日の修正は履歴タブの役割なので、対象日は今日/昨日の2択に絞る。 */
+let mealDraft = null; // {dayIso, slotMin, items:[{label,emoji,tier}], store, blocks:[{slotMin,items,store}]}
 const MEAL_SLOTS = [["🌅 朝",360],["🌞 昼",720],["🌆 夕",1080],["🌙 夜",1260],["🌌 深夜",0]];
+const SLOT_LABEL = (m) => (MEAL_SLOTS.find(s => s[1] === m) || ["",0])[0];
 function defaultSlotMin(){
   const h = new Date().getHours();
   if(h < 4) return 0;      // 深夜
@@ -828,22 +849,32 @@ function defaultSlotMin(){
   if(h < 18) return 1080;  // 夕
   return 1260;             // 夜
 }
+/** 追加ずみブロックと重ならない次の時間帯を返す(＋別の時間帯を追加 の初期値) */
+function nextFreeSlot(){
+  const used = mealDraft.blocks.map(b => b.slotMin).concat([mealDraft.slotMin]);
+  const order = [360, 720, 1080, 1260, 0];
+  return order.find(m => !used.includes(m)) != null ? order.find(m => !used.includes(m)) : mealDraft.slotMin;
+}
 function openMealDialog(dayIso){
-  mealDraft = { dayIso: dayIso || lToday(), slotMin: defaultSlotMin(), items: [], store: null };
+  const day = (dayIso === yesterdayIso()) ? yesterdayIso() : lToday(); // 今日/昨日のみ
+  mealDraft = { dayIso: day, slotMin: defaultSlotMin(), items: [], store: null, blocks: [] };
   renderMealDialog();
   $("dlgMeal").showModal();
 }
 function renderMealDialog(){
   const d = mealDraft;
-  const days = [];
-  for(let i = 0; i < 5; i++){
-    const iso = HK.logicalDateIso(Date.now() - i * 86400000);
-    const dd = new Date(iso + "T12:00:00");
-    const lab = i === 0 ? "今日" : i === 1 ? "昨日" : i === 2 ? "一昨日"
-      : `${dd.getMonth()+1}/${dd.getDate()}`;
-    days.push(`<button type="button" class="${d.dayIso===iso?"sel":""}" data-mealday="${iso}">${lab}</button>`);
+  $("mealDayBtns").innerHTML = [[lToday(),"今日"],[yesterdayIso(),"昨日"]].map(([iso,lab]) =>
+    `<button type="button" class="${d.dayIso===iso?"sel":""}" data-mealday="${iso}">${lab}</button>`).join("");
+  // 追加ずみブロック(昼→夜のように積み上げたもの)
+  if(d.blocks.length){
+    $("mealDoneWrap").classList.remove("hidden");
+    $("mealDone").innerHTML = d.blocks.map((b,i) =>
+      `<div class="selitem"><span class="nm">${SLOT_LABEL(b.slotMin)} · ${b.items.map(it => it.emoji || "🍽").join("")}
+        ${esc(b.items.map(it => it.label).join("・"))}${b.store ? ` <small style="color:var(--muted)">· ${esc(b.store)}</small>` : ""}</span>
+        <button type="button" class="rm" data-blockrm="${i}" aria-label="削除">×</button></div>`).join("");
+  } else {
+    $("mealDoneWrap").classList.add("hidden"); $("mealDone").innerHTML = "";
   }
-  $("mealDayBtns").innerHTML = days.join("");
   $("mealSlotBtns").innerHTML = MEAL_SLOTS.map(([lab,m]) =>
     `<button type="button" class="${d.slotMin===m?"sel":""}" data-mealslot="${m}">${lab}</button>`).join("");
   $("mealKindBtns").innerHTML = state.settings.mealKinds.map((k,idx) => {
@@ -884,22 +915,39 @@ document.addEventListener("click", (e) => {
   if(rm){ mealDraft.items.splice(+rm.dataset.selrm, 1); renderMealDialog(); return; }
   const st = e.target.closest("button[data-mealstore]");
   if(st){ mealDraft.store = st.dataset.mealstore || null; renderMealDialog(); return; }
+  const brm = e.target.closest("button[data-blockrm]");
+  if(brm){ mealDraft.blocks.splice(+brm.dataset.blockrm, 1); renderMealDialog(); return; }
 });
+/** いま編集中の時間帯を確定して積み、次の時間帯の入力を空で始める */
+$("btnMealAddSlot").onclick = () => {
+  const d = mealDraft;
+  if(!d.items.length){ toast("食べたものを選んでください"); return; }
+  d.blocks.push({ slotMin: d.slotMin, items: d.items, store: d.store });
+  d.slotMin = nextFreeSlot();
+  d.items = []; d.store = null;
+  renderMealDialog();
+  toast("追加しました。次の時間帯をどうぞ");
+};
 $("btnMealCancel").onclick = () => { $("dlgMeal").close(); };
 $("btnMealSave").onclick = () => {
   const d = mealDraft;
-  if(!d || !d.items.length){ toast("食べたものを選んでください"); return; }
-  const ms = d.dayIso === lToday() && d.slotMin === defaultSlotMin() ? Date.now() : HK.msFromLogicalDate(d.dayIso, d.slotMin);
+  if(!d) return;
+  // 編集中の入力も1ブロックとして扱う(1食だけなら従来どおり1回で保存できる)
+  const blocks = d.items.length ? d.blocks.concat([{ slotMin: d.slotMin, items: d.items, store: d.store }]) : d.blocks;
+  if(!blocks.length){ toast("食べたものを選んでください"); return; }
   const ids = [];
-  d.items.forEach(it => {
-    const id = HK.logEvent(state, "MEAL", it.label, ms, it.tier);
-    if(d.store) HK.setEventPlace(state, id, d.store);
-    ids.push(id);
+  blocks.forEach(b => {
+    const ms = (d.dayIso === lToday() && b.slotMin === defaultSlotMin())
+      ? Date.now() : HK.msFromLogicalDate(d.dayIso, b.slotMin);
+    b.items.forEach(it => {
+      const id = HK.logEvent(state, "MEAL", it.label, ms, it.tier);
+      if(b.store) HK.setEventPlace(state, id, b.store);
+      ids.push(id);
+    });
   });
   save(); renderTodayLog(); renderDayEditor();
   $("dlgMeal").close();
-  const n = ids.length;
-  toast(`${n}件を記録しました`, () => {
+  toast(`${ids.length}件を記録しました`, () => {
     ids.forEach(id => HK.deleteEventById(state, id));
     save(); renderTodayLog(); renderDayEditor();
   });
@@ -1351,14 +1399,23 @@ document.addEventListener("click", (e) => {
 });
 
 /* ================= 履歴: 日ごとの編集 ================= */
+// 履歴を開いたときは「昨日」を初期選択(直したくなるのはたいてい前日のため)
 let editDate = null;
+const yesterdayIso = () => HK.logicalDateIso(Date.now() - 86400000);
+/** 日付の相対ラベル: 今日/昨日はホームと同じ日だと分かるように文字で示す */
+function dayLabel(iso){
+  if(iso === lToday()) return "今日";
+  if(iso === yesterdayIso()) return "昨日";
+  const d = new Date(iso + "T12:00:00");
+  return `${d.getMonth()+1}/${d.getDate()}<br>${"月火水木金土日"[(d.getDay()+6)%7]}`;
+}
 function renderDayStrip(){
+  if(!editDate) editDate = yesterdayIso();
   const btns = [];
   for(let i = 6; i >= 0; i--){
     const iso = HK.logicalDateIso(Date.now() - i * 86400000);
-    const d = new Date(iso + "T12:00:00");
     btns.push(`<button type="button" class="${editDate===iso?"sel":""}" data-day="${iso}">
-      ${d.getMonth()+1}/${d.getDate()}<br>${"月火水木金土日"[(d.getDay()+6)%7]}</button>`);
+      ${dayLabel(iso)}</button>`);
   }
   $("dayStrip").innerHTML = btns.join("");
   $("dayStrip").querySelectorAll("button").forEach(b =>
@@ -1366,8 +1423,12 @@ function renderDayStrip(){
 }
 function renderDayEditor(){
   const el = $("dayEditor"); if(!el) return;
-  if(!editDate){ el.innerHTML = `<p class="note">上の日付をタップすると、その日の記録をまとめて修正できます。</p>`; return; }
-  logTargetDate = editDate === lToday() ? null : editDate;
+  if(!editDate) editDate = yesterdayIso();
+  // 記録先の切替は履歴を開いているときだけ。ホームからの記録でこの関数が呼ばれても
+  // 記録先が過去日にずれないようにする(ホームのチップが2回目以降ずれる不具合の対策)
+  if(!$("view-history").classList.contains("hidden")){
+    logTargetDate = editDate === lToday() ? null : editDate;
+  }
   const sl = state.sleep[editDate];
   const ev = HK.eventsOn(state, editDate);
   el.innerHTML = `
@@ -1387,8 +1448,8 @@ function renderDayEditor(){
     <div class="subh">この日のログ(タップで修正・削除)</div>
     <ul class="log">${ev.length ? ev.map(eventLine).join("") : `<li class="empty">記録なし</li>`}</ul>
     <div class="subh">記録を追加(19時起点で入ります。時間はあとで調整)</div>
-    <div class="chips g3 tier" style="margin-bottom:8px">${TIERS.map(([t,lab,cls]) =>
-      `<button type="button" class="${cls}" data-tier="${t}">${lab}</button>`).join("")}</div>
+    <div class="chips g3" style="margin-bottom:8px">${state.settings.mealKinds.map((k,idx) =>
+      `<button type="button" class="kind ${TIER_CLS[k.tier]||"kN"}" data-quickkind="${idx}">${k.emoji||"🍽"} ${esc(k.label)}</button>`).join("")}</div>
     <div class="chips g3"><button type="button" data-latecoffee="1">☕ 21時〜</button>
     ${state.settings.activityChips.slice(0,2).map(c =>
       `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("")}</div>`;
