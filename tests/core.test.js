@@ -156,9 +156,9 @@ test("buildGeminiPayload: meal_tier_countsが種類別に集計", () => {
 });
 
 // ================= migrate(後方互換・非破壊) =================
-test("migrate: 空でも現行スキーマ(v8)に整う", () => {
+test("migrate: 空でも現行スキーマ(v9)に整う", () => {
   const s = HK.migrate({});
-  assertEq(s.version, 8);
+  assertEq(s.version, 9);
   assert(Array.isArray(s.events));
   assert(s.settings && Array.isArray(s.settings.mealKinds));
   assert(s.goals && typeof s.goals === "object");
@@ -262,11 +262,11 @@ test("migrate: v5 string配列 → object配列(非破壊・カスタム保持)"
   const s = HK.migrate({ version: 5, settings: { mealKinds: ["サラダ・野菜", "自作カレー"] } });
   assertEq(s.settings.mealKinds[0], { label: "サラダ・野菜", emoji: "🥗", tier: 1 });
   assertEq(s.settings.mealKinds[1], { label: "自作カレー", emoji: "🍽", tier: 2 });
-  assertEq(s.version, 8);
+  assertEq(s.version, 9);
 });
-test("migrate: 旧mealKinds既定 → 新カタログ(10種)へ差し替え", () => {
+test("migrate: 旧mealKinds既定 → 新カタログへ差し替え(MECE版)", () => {
   const s = HK.migrate({ settings: { mealKinds: HK.LEGACY_MEAL_KINDS_V5.slice() } });
-  assertEq(s.settings.mealKinds.length, 10);
+  assertEq(s.settings.mealKinds.length, HK.MEAL_KINDS.length);
   assert(s.settings.mealKinds.every((k) => typeof k === "object" && k.emoji && k.tier));
 });
 test("migrate: object配列は冪等(2回でも壊れない)・placeも保持", () => {
@@ -441,6 +441,130 @@ test("addHealthCheck: 要約とimageId(参照のみ)を保存", () => {
   // buildContextPayloadには要約のみ載る(画像ID/生値は送らない)
   const ctx = HK.buildContextPayload(s, Date.now());
   assertEq(ctx.latest_health_check, { date: "2026-07-01", summary: "所見あり" });
+});
+
+// ================= 改良: 食事カタログのMECE化 =================
+test("MEAL_KINDS: 迷ったとき用の「その他」があり、tierは1-3のみ", () => {
+  assert(HK.MEAL_KINDS.some((k) => k.label === "その他"), "受け皿がある");
+  assert(HK.MEAL_KINDS.every((k) => [1, 2, 3].includes(k.tier) && k.emoji && k.label));
+  const labels = HK.MEAL_KINDS.map((k) => k.label);
+  assertEq(labels.length, new Set(labels).size, "重複なし");
+  // ユーザーが挙げた「どれか分からない」例に居場所があること
+  ["洋食・パスタ", "弁当・惣菜", "中華", "肉料理"].forEach((l) =>
+    assert(labels.includes(l), l + " がカタログにある"));
+});
+test("MEAL_KIND_LOOKUP: カタログの全種類を引ける", () => {
+  HK.MEAL_KINDS.forEach((k) => {
+    const meta = HK.mealKindMeta(k.label);
+    assertEq(meta.tier, k.tier, k.label + " のtier");
+    assertEq(meta.emoji, k.emoji, k.label + " のemoji");
+  });
+});
+test("migrate: v6既定(10種)のままなら新カタログへ、編集済みなら保持", () => {
+  const asObj = (labels) => labels.map((l) => ({ label: l, emoji: HK.mealKindMeta(l).emoji, tier: HK.mealKindMeta(l).tier }));
+  // 未編集 → 差し替え
+  const fresh = HK.migrate({ version: 8, settings: { mealKinds: asObj(HK.LEGACY_MEAL_KINDS_V6) } });
+  assertEq(fresh.settings.mealKinds.length, HK.MEAL_KINDS.length);
+  // 1つ削除して編集済み → そのまま
+  const edited = HK.migrate({ version: 8, settings: { mealKinds: asObj(HK.LEGACY_MEAL_KINDS_V6.slice(0, 9)) } });
+  assertEq(edited.settings.mealKinds.length, 9, "編集済みは上書きしない");
+  // tierを変えて編集済み → そのまま
+  const t = asObj(HK.LEGACY_MEAL_KINDS_V6);
+  t[4].tier = 3;
+  const retiered = HK.migrate({ version: 8, settings: { mealKinds: t } });
+  assertEq(retiered.settings.mealKinds.length, 10, "tier変更も編集とみなす");
+  assertEq(retiered.settings.mealKinds[4].tier, 3);
+});
+
+// ================= 改良: 睡眠の推定・取り込み =================
+const seedSleep = (s, endDay) => { // 23:30就寝/07:00起床を5日ぶん
+  for (let d = endDay - 4; d <= endDay; d++)
+    HK.setSleepManual(s, HK.dateIso(at(2026, 7, d, 7, 0)), at(2026, 7, d - 1, 23, 30), at(2026, 7, d, 7, 0));
+};
+test("usualSleepTimes: 中央値(0時またぎも正しく)", () => {
+  const s = HK.emptyState();
+  seedSleep(s, 23);
+  const u = HK.usualSleepTimes(s, at(2026, 7, 24, 12, 0));
+  assertEq(u.bedMin, 23 * 60 + 30, "就寝は0時をまたいでも中央値が取れる");
+  assertEq(u.wakeMin, 7 * 60);
+  assertEq(HK.usualSleepTimes(HK.emptyState(), at(2026, 7, 24, 12, 0)), null, "記録なしはnull");
+});
+test("estimateSleep: おやすみ記録 > いつもの時間 > 操作間隔 の順で推定", () => {
+  const now = at(2026, 7, 24, 12, 0);
+  // ① おやすみ記録があればそれを使う
+  const a = HK.emptyState(); seedSleep(a, 23);
+  a.pendingBed = at(2026, 7, 23, 22, 45);
+  assertEq(HK.estimateSleep(a, now).basis, "bed");
+  assertEq(HK.hhmm(HK.estimateSleep(a, now).bedMs), "22:45");
+  // ② なければ いつもの時間
+  const b = HK.emptyState(); seedSleep(b, 23);
+  assertEq(HK.estimateSleep(b, now).basis, "usual");
+  // ③ 実績がなければ 夜の最終操作
+  const c = HK.emptyState(); c.lastActiveAt = at(2026, 7, 23, 23, 0);
+  const ec = HK.estimateSleep(c, at(2026, 7, 24, 7, 0));
+  assertEq(ec.basis, "activity");
+  // ④ 材料が何もなければ null(0やダミーで埋めない)
+  assertEq(HK.estimateSleep(HK.emptyState(), now), null);
+});
+test("estimateSleep: 記録済みの日は提案しない", () => {
+  const s = HK.emptyState(); seedSleep(s, 24);
+  assertEq(HK.estimateSleep(s, at(2026, 7, 24, 12, 0)), null);
+});
+test("resolveWakeOnOpen: 昼以降に開いても過大記録しない(提案に回す)", () => {
+  const s = HK.emptyState(); seedSleep(s, 23);
+  HK.markBed(s, at(2026, 7, 23, 23, 30));
+  const r = HK.resolveWakeOnOpen(s, at(2026, 7, 24, 12, 0)); // 12時に開く
+  assertEq(r.kind, "suggest");
+  assertEq(s.sleep["2026-07-24"], undefined, "12h超の睡眠を勝手に作らない");
+  assert(s.pendingBed != null, "おやすみは保持(あとで確定できる)");
+});
+test("resolveWakeOnOpen: 夜に開いても「おやすみ」を破棄しない", () => {
+  const s = HK.emptyState(); seedSleep(s, 23);
+  HK.markBed(s, at(2026, 7, 23, 23, 30));
+  const r = HK.resolveWakeOnOpen(s, at(2026, 7, 24, 21, 0));
+  assertEq(r.kind, "suggest");
+  assert(s.pendingBed != null);
+});
+test("resolveWakeOnOpen: 30時間を超えた古いおやすみは破棄", () => {
+  const s = HK.emptyState();
+  HK.markBed(s, at(2026, 7, 23, 23, 30));
+  const r = HK.resolveWakeOnOpen(s, at(2026, 7, 25, 10, 0)); // 34.5h後
+  assertEq(r.kind, "stale");
+  assertEq(s.pendingBed, null);
+});
+test("acceptSleepEstimate: 提案を1タップで確定できる", () => {
+  const s = HK.emptyState(); seedSleep(s, 23);
+  HK.markBed(s, at(2026, 7, 23, 23, 30));
+  const r = HK.acceptSleepEstimate(s, at(2026, 7, 24, 12, 0));
+  assertEq(r.dateIso, "2026-07-24");
+  assertEq(s.sleep["2026-07-24"].durationMin, 7 * 60 + 30, "23:30→07:00");
+  assertEq(s.pendingBed, null);
+});
+test("parseSleepText: 各種フォーマットを解釈", () => {
+  const now = at(2026, 7, 24, 12, 0);
+  const rows = HK.parseSleepText("23:40-07:10", now);
+  assertEq(rows.length, 1);
+  assertEq(rows[0].dateIso, "2026-07-24");
+  assertEq(rows[0].durationMin, 7 * 60 + 30);
+  assertEq(HK.parseSleepText("23:40 → 07:10", now).length, 1, "矢印");
+  assertEq(HK.parseSleepText("0:15〜6:40", now).length, 1, "全角チルダ・1桁時");
+  assertEq(HK.parseSleepText("2026-07-22 23:00-06:30", now)[0].dateIso, "2026-07-22", "日付指定");
+  assertEq(HK.parseSleepText("きのうはよく寝た", now).length, 0, "読めない行は無視");
+  assertEq(HK.parseSleepText("25:00-07:00", now).length, 0, "不正な時刻は無視");
+});
+test("parseSleepText: 複数行をまとめて解釈", () => {
+  const rows = HK.parseSleepText("2026-07-22 23:00-06:30\n2026-07-23 23:50-07:20", at(2026, 7, 24, 12, 0));
+  assertEq(rows.length, 2);
+  assertEq(rows.map((r) => r.dateIso), ["2026-07-22", "2026-07-23"]);
+});
+test("importSleepText: 既存の記録は上書きしない(手で直した値を守る)", () => {
+  const s = HK.emptyState();
+  HK.setSleepManual(s, "2026-07-23", at(2026, 7, 22, 22, 0), at(2026, 7, 23, 6, 0));
+  const r = HK.importSleepText(s, "2026-07-23 23:00-07:00\n2026-07-22 23:30-06:30", at(2026, 7, 24, 12, 0));
+  assertEq(r.added, 1);
+  assertEq(r.skipped, 1);
+  assertEq(s.sleep["2026-07-23"].durationMin, 8 * 60, "既存はそのまま");
+  assertEq(s.sleep["2026-07-22"].source, "IMPORT");
 });
 
 // ================= 結果 =================

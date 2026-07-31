@@ -338,6 +338,17 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
       <p class="note">AIレポートに背景として渡されます。🤖はAIが健診などから抽出した項目です。すべて端末内に保存されます。</p>
     </div>
     <div class="card">
+      <h2>睡眠の取り込み</h2>
+      <textarea id="sleepImport" rows="3" maxlength="2000" placeholder="例: 23:40-07:10&#10;2026-07-30 00:15-06:40" style="font-family:inherit; font-size:14px; color:var(--text); background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%"></textarea>
+      <button class="btn primary" id="btnSleepImport" style="margin-top:8px">取り込む</button>
+      <p class="note" id="sleepImportNote">ヘルスコネクトやスマートウォッチのアプリからコピーした就寝→起床の時刻を貼り付けて取り込めます(1行1日・複数行OK)。すでに記録がある日はそのまま残します。</p>
+      <details style="margin-top:8px; font-size:12px; color:var(--muted)">
+        <summary style="cursor:pointer">Androidで自動化する(上級者向け)</summary>
+        <p class="note" style="margin-top:6px">MacroDroid等で次のURLを開くと、その場で取り込まれます:<br>
+        <code style="word-break:break-all; color:var(--moon)" id="sleepUrlSample"></code></p>
+      </details>
+    </div>
+    <div class="card">
       <h2>健康診断の記録</h2>
       <div id="hcList"></div>
       <div class="subh">📝 テキストで入力</div>
@@ -537,9 +548,21 @@ function renderSleep(){
       <div class="ckrow" style="margin-top:12px"><span class="lbl">眠りの質</span>
         <div class="seg">${Q_OPTS.map(([v,lab]) =>
           `<button type="button" class="${sl.quality===v?"sel":""}" data-q="${v}:${t}">${lab}</button>`).join("")}</div></div>`;
-  } else if(state.pendingBed == null && h >= 4 && h < 12){
-    html += `<p style="font-size:15px; margin:0">昨夜の睡眠がまだ記録されていません。</p>
-      <button class="btn-big" id="btnQuickSet">昨夜の睡眠を入れる(10秒)</button>`;
+  } else {
+    // 未記録の日は「時間帯を問わず」入力できるようにする(昼〜夕方に空白ができないように)。
+    // 推定できるときは1タップで確定できる提案を出す(勝手に確定はしない)。
+    const est = HK.estimateSleep(state, Date.now());
+    if(est){
+      const basis = { bed:"おやすみの記録から", usual:"いつもの時間から", activity:"操作の間隔から" }[est.basis] || "";
+      html += `<p style="font-size:14px; margin:0 0 2px">昨夜の睡眠はこれで合っていますか?</p>
+        <p class="note" style="margin:0">${basis}の推定です</p>
+        <button class="btn-big" id="btnAcceptEst">${HK.hhmm(est.bedMs)} → ${HK.hhmm(est.wakeMs)}
+          <span style="font-size:14px">(${Math.floor(est.durationMin/60)}時間${String(est.durationMin%60).padStart(2,"0")}分)</span> で記録</button>
+        <button class="btn-ghost" id="btnQuickSet" style="margin-top:2px">自分で入れる</button>`;
+    } else {
+      html += `<p style="font-size:14px; margin:0">昨夜の睡眠がまだ記録されていません。</p>
+        <button class="btn-big" id="btnQuickSet">昨夜の睡眠を入れる(10秒)</button>`;
+    }
   }
   if(state.pendingBed != null){
     html += `<div class="pending" style="margin-top:10px"><span class="label">🌙 おやすみ中(${HK.hhmm(state.pendingBed)}〜)</span>
@@ -552,6 +575,13 @@ function renderSleep(){
   el.innerHTML = html;
   const dial = el.querySelector(".dial"); if(dial) dial.addEventListener("click", () => openSleepDialog(t, sl));
   const qs = $("btnQuickSet"); if(qs) qs.onclick = () => openSleepDialog(t, null);
+  const ae = $("btnAcceptEst"); if(ae) ae.onclick = () => {
+    const r = HK.acceptSleepEstimate(state, Date.now());
+    if(!r){ renderSleep(); return; }
+    save(); renderSleep(); renderDayEditor();
+    toast(`睡眠 ${Math.floor(r.durationMin/60)}時間${r.durationMin%60}分 を記録しました`,
+      () => { delete state.sleep[r.dateIso]; save(); renderSleep(); renderDayEditor(); });
+  };
   const cb = $("btnCancelBed"); if(cb) cb.onclick = () => { state.pendingBed = null; save(); renderSleep(); };
   const bb = $("btnBed"); if(bb) bb.onclick = () => {
     HK.markBed(state, Date.now()); save(); renderSleep(); toast("おやすみなさい。よい眠りを");
@@ -569,8 +599,16 @@ function openSleepDialog(dateIso, existing){
   $("dlgSleepFlow").textContent = `${md(bd)}の夜 → ${md(wd)}の朝 に起きた睡眠です`;
   $("lblBedDate").textContent = `(${bd.getMonth()+1}/${bd.getDate()} 夜)`;
   $("lblWakeDate").textContent = `(${wd.getMonth()+1}/${wd.getDate()} 朝)`;
-  setPicker("inBedH","inBedM", existing ? HK.parseHHmm(HK.hhmm(existing.bed)) : 30);
-  setPicker("inWakeH","inWakeM", existing ? HK.parseHHmm(HK.hhmm(existing.wake)) : 6*60+30);
+  // 新規入力の初期値: ①推定値 ②いつもの時間(過去の中央値) ③0:30/6:30 の順に埋める。
+  // 毎回イチから選び直さなくて済むようにするため。
+  const est = existing ? null : HK.estimateSleep(state, Date.now());
+  const usual = existing || est ? null : HK.usualSleepTimes(state, Date.now());
+  const bedMin = existing ? HK.parseHHmm(HK.hhmm(existing.bed))
+    : est ? HK.parseHHmm(HK.hhmm(est.bedMs)) : usual ? usual.bedMin : 30;
+  const wakeMin = existing ? HK.parseHHmm(HK.hhmm(existing.wake))
+    : est ? HK.parseHHmm(HK.hhmm(est.wakeMs)) : usual ? usual.wakeMin : 6*60+30;
+  setPicker("inBedH","inBedM", bedMin);
+  setPicker("inWakeH","inWakeM", wakeMin);
   $("dlgSleep").showModal();
 }
 $("btnSleepCancel").onclick = () => $("dlgSleep").close();
@@ -1213,6 +1251,25 @@ document.addEventListener("click", (e) => {
   }
 });
 
+/* ================= 睡眠の取り込み(貼り付け / URL) ================= */
+function doSleepImport(text, opts){
+  const r = HK.importSleepText(state, text, Date.now());
+  if(!r.total){ toast("時刻を読み取れませんでした(例: 23:40-07:10)"); return r; }
+  save(); renderSleep(); renderDayEditor(); renderHistory && null;
+  toast(`${r.added}日ぶんを取り込みました` + (r.skipped ? `(既存${r.skipped}日はそのまま)` : ""));
+  if(opts && opts.clear && $("sleepImport")) $("sleepImport").value = "";
+  return r;
+}
+$("btnSleepImport").onclick = () => doSleepImport($("sleepImport").value, { clear:true });
+/** URL の #sleep=23:40-07:10 で取り込む(Androidの自動化用。PWAとChromeで保存先が共通のため安全) */
+function importFromHash(){
+  const m = /[#&]sleep=([^&]+)/.exec(location.hash || "");
+  if(!m) return;
+  const text = decodeURIComponent(m[1].replace(/\+/g, " "));
+  history.replaceState(null, "", location.pathname + location.search + "#home"); // 再読込での二重取り込みを防ぐ
+  doSleepImport(text);
+}
+
 /* ================= 健診画像: IndexedDB(端末内) ================= */
 const IDB_NAME = "hk-images", IDB_STORE = "img";
 function idbOpen(){
@@ -1600,6 +1657,7 @@ function renderSettings(){
   renderKindEditor();
   renderPersonalContext();
   renderHealthChecks();
+  $("sleepUrlSample").textContent = location.origin + location.pathname + "#sleep=23:40-07:10";
   $("chipEditors").innerHTML = CHIP_GROUPS.map(([key,title]) => `
     <div class="field"><label>${title}</label>
       <div class="chiplist">${state.settings[key].map((c,i) =>
@@ -1702,9 +1760,11 @@ $("btnWipe").onclick = () => {
 };
 
 /* ================= ルーター / 初期化 ================= */
+const VIEWS = ["home","history","analysis","settings"];
 function route(){
-  const v = (location.hash || "#home").slice(1);
-  ["home","history","analysis","settings"].forEach(x => {
+  let v = (location.hash || "#home").slice(1);
+  if(!VIEWS.includes(v)) v = "home"; // 未知のhash(#sleep=等)でも画面が消えないようにする
+  VIEWS.forEach(x => {
     $("view-"+x).classList.toggle("hidden", x!==v);
     document.querySelector(`nav a[data-v="${x}"]`).classList.toggle("on", x===v);
   });
@@ -1713,7 +1773,8 @@ function route(){
   if(v === "analysis") renderAnalysis();
   if(v === "settings") renderSettings();
 }
-window.addEventListener("hashchange", route);
+// アプリを開いたまま #sleep= のURLを開かれた場合(Androidの自動化)もその場で取り込む
+window.addEventListener("hashchange", () => { importFromHash(); route(); });
 
 function renderAll(){
   const now = new Date();
@@ -1731,13 +1792,15 @@ function handleWakeResult(r){
     toast(`おはようございます。睡眠 ${h}時間${m}分 を記録しました`,
       () => { delete state.sleep[r.dateIso]; save(); renderSleep(); });
   } else if(r.kind === "stale"){
-    toast("昨夜の「おやすみ」が確定されませんでした。ホームから手動で入れられます");
+    toast("前の「おやすみ」が古かったので取り消しました。ホームから入れられます");
   }
+  // kind === "suggest" は睡眠カードに推定が出るので、通知は出さない(割り込まない)
 }
 (function boot(){
   const r = HK.resolveWakeOnOpen(state, Date.now());
   HK.touch(state, Date.now());
   save();
+  importFromHash(); // URL経由の睡眠取り込み(あれば)を先に反映
   renderAll();
   handleWakeResult(r);
   maybeShowWeekend();

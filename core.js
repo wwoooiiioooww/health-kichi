@@ -21,36 +21,55 @@ HK.LATE_COFFEE_HOUR = 21;
 HK.MIN_SLEEP_MIN = 180;
 HK.MAX_SLEEP_MIN = 16 * 60;
 HK.STALE_WAKE_HOUR = 12;
+HK.STALE_BED_MIN = 30 * 60;     // 「おやすみ」から30時間を超えたら古すぎるとみなして破棄
 HK.WAKE_WINDOW_START_HOUR = 4;
 HK.NIGHT_ACTIVE_FROM = 20;
 HK.DAY_START_HOUR = 4;          // 論理日の境界。朝4時より前は「前日」扱い
 
 // 食事の「種類」カタログ。tier(健康度 1=good/2=normal/3=junk)と絵文字を内蔵。
 // 「1品=1記録」方式: 1食で複数選ぶと同時刻に複数MEALとして記録される。
+// MECEを意識した並び(体にいい→ふつう→ジャンク)。既存ラベルは表記ゆれを避けるため変更しない。
+// 「その他」を必ず末尾に置き、どれにも当てはまらない食事の受け皿にする(漏れなしの担保)。
 HK.MEAL_KINDS = [
   { label: "サラダ・野菜", emoji: "🥗", tier: 1 },
   { label: "魚・海鮮", emoji: "🐟", tier: 1 },
   { label: "寿司", emoji: "🍣", tier: 1 },
+  { label: "卵・豆・乳製品", emoji: "🥚", tier: 1 },
+  { label: "果物", emoji: "🍎", tier: 1 },
   { label: "定食・和食", emoji: "🍚", tier: 2 },
+  { label: "肉料理", emoji: "🍖", tier: 2 },
+  { label: "洋食・パスタ", emoji: "🍝", tier: 2 },
+  { label: "中華", emoji: "🥟", tier: 2 },
   { label: "麺類", emoji: "🍜", tier: 2 },
   { label: "丼・カレー", emoji: "🍛", tier: 2 },
+  { label: "弁当・惣菜", emoji: "🍱", tier: 2 },
   { label: "パン・軽食", emoji: "🍞", tier: 2 },
+  { label: "その他", emoji: "🍽", tier: 2 },
   { label: "バーガー・FF", emoji: "🍔", tier: 3 },
   { label: "揚げ物・スナック", emoji: "🍟", tier: 3 },
-  { label: "お菓子・デザート", emoji: "🍰", tier: 3 }
+  { label: "お菓子・デザート", emoji: "🍰", tier: 3 },
+  { label: "甘い飲み物・お酒", emoji: "🥤", tier: 3 }
 ];
 HK.DEFAULT_MEAL_KINDS = HK.MEAL_KINDS.map((o) => Object.assign({}, o));
 // 旧string配列(v5以前)を新object配列へ移行する際の絵文字/tier対応表(旧名も含む)
 HK.MEAL_KIND_LOOKUP = {
   "サラダ・野菜": { emoji: "🥗", tier: 1 }, "魚・海鮮": { emoji: "🐟", tier: 1 },
   "寿司": { emoji: "🍣", tier: 1 }, "寿司・海鮮": { emoji: "🍣", tier: 1 },
-  "定食・和食": { emoji: "🍚", tier: 2 }, "麺類": { emoji: "🍜", tier: 2 },
-  "丼・カレー": { emoji: "🍛", tier: 2 }, "パン・軽食": { emoji: "🍞", tier: 2 },
+  "卵・豆・乳製品": { emoji: "🥚", tier: 1 }, "果物": { emoji: "🍎", tier: 1 },
+  "定食・和食": { emoji: "🍚", tier: 2 }, "肉料理": { emoji: "🍖", tier: 2 },
+  "洋食・パスタ": { emoji: "🍝", tier: 2 }, "中華": { emoji: "🥟", tier: 2 },
+  "麺類": { emoji: "🍜", tier: 2 }, "丼・カレー": { emoji: "🍛", tier: 2 },
+  "弁当・惣菜": { emoji: "🍱", tier: 2 }, "パン・軽食": { emoji: "🍞", tier: 2 },
+  "その他": { emoji: "🍽", tier: 2 },
   "バーガー・FF": { emoji: "🍔", tier: 3 }, "揚げ物・スナック": { emoji: "🍟", tier: 3 },
-  "お菓子・デザート": { emoji: "🍰", tier: 3 }, "お菓子・間食": { emoji: "🍰", tier: 3 }
+  "お菓子・デザート": { emoji: "🍰", tier: 3 }, "お菓子・間食": { emoji: "🍰", tier: 3 },
+  "甘い飲み物・お酒": { emoji: "🥤", tier: 3 }
 };
 // v5以前のmealKinds既定値(未編集判定用)
 HK.LEGACY_MEAL_KINDS_V5 = ["定食・和食", "麺類", "丼・カレー", "バーガー・FF", "寿司・海鮮", "パン・軽食", "サラダ・野菜", "お菓子・間食"];
+// v6〜v8の既定カタログ(10種)。未編集ならMECE版へ差し替える判定に使う。
+HK.LEGACY_MEAL_KINDS_V6 = ["サラダ・野菜", "魚・海鮮", "寿司", "定食・和食", "麺類", "丼・カレー",
+  "パン・軽食", "バーガー・FF", "揚げ物・スナック", "お菓子・デザート"];
 /** 種類名から{emoji,tier}を引く。未知は{🍽, 2} */
 HK.mealKindMeta = (name) => HK.MEAL_KIND_LOOKUP[name] || { emoji: "🍽", tier: 2 };
 // 食事の「店」(2026年時点の国内店舗数上位チェーンを網羅的に。設定で編集可)
@@ -102,7 +121,7 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 8,
+  version: 9,
   events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label(=種類), tier(MEALのみ1-3), place(MEALの店・任意)}
   nextEventId: 1,
   sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
@@ -169,6 +188,12 @@ HK.migrate = (s) => {
         }
         return { label: k.label, emoji: k.emoji || "🍽", tier: k.tier || 2 };
       });
+      // v6〜v8の既定カタログのまま(未編集)なら、MECE版へ差し替える。
+      // ユーザーが追加・削除・tier変更していれば、その設定を尊重してそのまま残す。
+      if (eq(s.settings.mealKinds.map((k) => k.label), HK.LEGACY_MEAL_KINDS_V6)
+        && s.settings.mealKinds.every((k) => k.tier === HK.mealKindMeta(k.label).tier)) {
+        s.settings.mealKinds = HK.DEFAULT_MEAL_KINDS.map((o) => Object.assign({}, o));
+      }
     }
   }
   // conditions / personalContext の補完(nested配列の健全性も保証・非破壊)
@@ -176,7 +201,7 @@ HK.migrate = (s) => {
   if (!s.personalContext || typeof s.personalContext !== "object") s.personalContext = { facts: [], healthChecks: [] };
   if (!Array.isArray(s.personalContext.facts)) s.personalContext.facts = [];
   if (!Array.isArray(s.personalContext.healthChecks)) s.personalContext.healthChecks = [];
-  s.version = 8;
+  s.version = 9;
   return s;
 };
 
@@ -199,28 +224,149 @@ HK.resolveWakeOnOpen = (state, nowMs) => {
     const bed = state.pendingBed;
     const elapsedMin = Math.floor((nowMs - bed) / 60000);
     if (elapsedMin < HK.MIN_SLEEP_MIN) return { kind: "short" };
-    if (h >= HK.STALE_WAKE_HOUR && elapsedMin > HK.MAX_SLEEP_MIN) {
+    if (elapsedMin > HK.STALE_BED_MIN) { // 丸1日以上前の「おやすみ」は古すぎるので捨てる
       state.pendingBed = null;
       return { kind: "stale" };
     }
     if (h < HK.WAKE_WINDOW_START_HOUR) return { kind: "short" };
-    state.sleep[today] = { bed, wake: nowMs, durationMin: elapsedMin, source: "AUTO", corrected: false };
-    state.pendingBed = null;
-    return { kind: "woke", dateIso: today, durationMin: elapsedMin, inferred: false };
+    // 朝(4-12時)に開いた場合だけ「開いた時刻=起床」とみなして自動確定する(いちばん確度が高い)。
+    // 昼以降に開いた場合、そのまま確定すると起床が遅すぎて過大記録になるため提案に回す。
+    if (h < HK.STALE_WAKE_HOUR) {
+      state.sleep[today] = { bed, wake: nowMs, durationMin: elapsedMin, source: "AUTO", corrected: false };
+      state.pendingBed = null;
+      return { kind: "woke", dateIso: today, durationMin: elapsedMin, inferred: false };
+    }
+    return { kind: "suggest", dateIso: today };
   }
 
   if (state.sleep[today]) return { kind: "none" };
-  const la = state.lastActiveAt;
-  if (la == null) return { kind: "none" };
-  const gapMin = Math.floor((nowMs - la) / 60000);
-  const lah = new Date(la).getHours();
-  const nightActive = lah >= HK.NIGHT_ACTIVE_FROM || lah < HK.WAKE_WINDOW_START_HOUR;
-  const morningNow = h >= HK.WAKE_WINDOW_START_HOUR && h < HK.STALE_WAKE_HOUR;
-  if (nightActive && morningNow && gapMin >= HK.MIN_SLEEP_MIN && gapMin <= HK.MAX_SLEEP_MIN) {
-    state.sleep[today] = { bed: la, wake: nowMs, durationMin: gapMin, source: "AUTO", corrected: false };
-    return { kind: "woke", dateIso: today, durationMin: gapMin, inferred: true };
+  // 「最後の操作=就寝」は実際より早すぎることが多い(21時に触って23時に寝る等)。
+  // 勝手に確定せず、推定値を提案してワンタップで確定してもらう。
+  return HK.estimateSleep(state, nowMs) ? { kind: "suggest", dateIso: today } : { kind: "none" };
+};
+
+/** 過去 n 日の記録から「いつもの就寝・起床時刻」(分)を中央値で求める。記録がなければ null */
+HK.usualSleepTimes = (state, nowMs, nDays) => {
+  const n = nDays || 14;
+  const beds = [], wakes = [];
+  for (let i = 0; i <= n; i++) {
+    const sl = state.sleep[HK.dateIso(nowMs - i * 86400000)];
+    if (!sl || sl.bed == null || sl.wake == null) continue;
+    beds.push(HK.parseHHmm(HK.hhmm(sl.bed)));
+    wakes.push(HK.parseHHmm(HK.hhmm(sl.wake)));
   }
-  return { kind: "none" };
+  if (!beds.length) return null;
+  const med = (arr) => { const a = arr.slice().sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };
+  // 就寝は0時をまたぐため、正午を基準にずらしてから中央値を取る
+  const bedMin = (med(beds.map((v) => (v - 720 + 1440) % 1440)) + 720) % 1440;
+  return { bedMin, wakeMin: med(wakes), days: beds.length };
+};
+
+/**
+ * 未記録の日について「昨夜の睡眠」の推定値を返す。確定はしない(提案用)。
+ * 推定できる材料が何もなければ null(0やダミーで埋めない)。
+ * 戻り値: { bedMs, wakeMs, durationMin, basis }
+ */
+HK.estimateSleep = (state, nowMs) => {
+  const today = HK.dateIso(nowMs);
+  if (state.sleep[today]) return null;
+  const h = new Date(nowMs).getHours();
+  const usual = HK.usualSleepTimes(state, nowMs);
+
+  // --- 起床時刻 ---
+  let wakeMs = null;
+  if (h >= HK.WAKE_WINDOW_START_HOUR && h < HK.STALE_WAKE_HOUR) {
+    wakeMs = nowMs;                                   // 朝に開いた = 起きて間もない
+  } else if (usual) {
+    wakeMs = HK.msFromLogicalDate(today, usual.wakeMin); // 昼以降 = いつもの起床時刻
+  } else if (h >= HK.STALE_WAKE_HOUR) {
+    return null;                                      // 材料なし(初回利用など)
+  } else {
+    return null;                                      // 深夜(4時前)はまだ「昨夜」が終わっていない
+  }
+
+  // --- 就寝時刻(確度の高い順) ---
+  let bedMs = null, basis = null;
+  if (state.pendingBed != null && state.pendingBed < wakeMs) {
+    bedMs = state.pendingBed; basis = "bed";          // 「おやすみ」を押していた
+  } else if (usual) {
+    const cand = HK.msFromLogicalDate(HK.dateIso(wakeMs - 86400000), usual.bedMin);
+    if (cand < wakeMs) { bedMs = cand; basis = "usual"; }  // いつもの就寝時刻
+  }
+  if (bedMs == null) {
+    const la = state.lastActiveAt;
+    const lah = la != null ? new Date(la).getHours() : null;
+    if (la != null && la < wakeMs && (lah >= HK.NIGHT_ACTIVE_FROM || lah < HK.WAKE_WINDOW_START_HOUR)) {
+      bedMs = la; basis = "activity";                 // 最後に触った時刻(いちばん粗い)
+    }
+  }
+  if (bedMs == null) return null;
+
+  const durationMin = Math.floor((wakeMs - bedMs) / 60000);
+  if (durationMin < HK.MIN_SLEEP_MIN || durationMin > HK.MAX_SLEEP_MIN) return null;
+  return { bedMs, wakeMs, durationMin, basis };
+};
+
+/** 提案を受け入れて記録する(source=AUTO扱い。あとから時計タップで修正可能) */
+HK.acceptSleepEstimate = (state, nowMs) => {
+  const est = HK.estimateSleep(state, nowMs);
+  if (!est) return null;
+  const dateIso = HK.dateIso(est.wakeMs);
+  state.sleep[dateIso] = { bed: est.bedMs, wake: est.wakeMs, durationMin: est.durationMin,
+    source: "AUTO", corrected: false };
+  state.pendingBed = null;
+  return { dateIso, durationMin: est.durationMin };
+};
+
+/**
+ * 睡眠テキストの取り込み(ヘルスコネクト等からコピーした文字列 / URLの #sleep= 経由)。
+ * 対応形式(1行1睡眠・複数行可):
+ *   "23:40-07:10" / "23:40 → 07:10" / "23:40〜7:10"
+ *   "2026-07-30 23:40-07:10"  (日付= 起床日 or 就寝日 のどちらでも解釈できるよう、起床日を優先)
+ * 戻り値: [{ dateIso, bedMs, wakeMs, durationMin }]。解釈できない行は無視する。
+ */
+HK.parseSleepText = (text, nowMs) => {
+  const out = [];
+  const lines = String(text || "").split(/[\n,;]+/);
+  const re = /(?:(\d{4})[-/](\d{1,2})[-/](\d{1,2})\D+)?(\d{1,2}):(\d{2})\s*(?:-|~|〜|–|—|→|to|~>)\s*(\d{1,2}):(\d{2})/;
+  for (const line of lines) {
+    const m = re.exec(line);
+    if (!m) continue;
+    const bedMin = (+m[4]) * 60 + (+m[5]);
+    const wakeMin = (+m[6]) * 60 + (+m[7]);
+    if (+m[4] > 23 || +m[6] > 23 || +m[5] > 59 || +m[7] > 59) continue;
+    // 起床日を確定する。日付指定がなければ「今日(=いちばん近い過去の起床)」とみなす。
+    let wakeDay;
+    if (m[1]) {
+      const p = (n) => (+n < 10 ? "0" + (+n) : "" + (+n));
+      wakeDay = m[1] + "-" + p(m[2]) + "-" + p(m[3]);
+    } else {
+      wakeDay = HK.dateIso(nowMs == null ? Date.now() : nowMs);
+    }
+    const base = new Date(wakeDay + "T00:00:00").getTime();
+    const wakeMs = base + wakeMin * 60000;
+    // 就寝が起床より遅い時刻なら前日の夜
+    let bedMs = base + bedMin * 60000;
+    if (bedMs >= wakeMs) bedMs -= 86400000;
+    const durationMin = Math.floor((wakeMs - bedMs) / 60000);
+    if (durationMin < 60 || durationMin > HK.MAX_SLEEP_MIN) continue;
+    out.push({ dateIso: HK.dateIso(wakeMs), bedMs, wakeMs, durationMin });
+  }
+  return out;
+};
+
+/** 取り込んだ睡眠をstateへ反映。既存の記録は上書きしない(手で直した値を守る) */
+HK.importSleepText = (state, text, nowMs, overwrite) => {
+  const rows = HK.parseSleepText(text, nowMs);
+  let added = 0, skipped = 0;
+  for (const r of rows) {
+    if (state.sleep[r.dateIso] && !overwrite) { skipped++; continue; }
+    state.sleep[r.dateIso] = { bed: r.bedMs, wake: r.wakeMs, durationMin: r.durationMin,
+      source: "IMPORT", corrected: false };
+    added++;
+  }
+  if (added) state.pendingBed = null;
+  return { added, skipped, total: rows.length };
 };
 
 HK.setSleepManual = (state, dateIso, bedMs, wakeMs) => {
