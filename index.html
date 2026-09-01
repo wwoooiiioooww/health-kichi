@@ -185,6 +185,24 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
 .wN{border-color:#4A5A66!important; background:#1B242A!important}
 .wH{border-color:#5C7180!important; background:#212D34!important}
 /* 設定: 表示する項目 */
+/* わかったこと(層別比較) */
+.ins{padding:13px 0; border-bottom:1px solid var(--line-soft)}
+.ins:first-of-type{padding-top:2px}
+.ins:last-child{border-bottom:0; padding-bottom:2px}
+.ins .it{font-size:13.5px; font-weight:600; margin-bottom:9px}
+.ins .bars{display:flex; flex-direction:column; gap:7px}
+.ins .b{display:grid; grid-template-columns:96px 1fr auto; align-items:center; gap:8px}
+.ins .b .bl{font-size:11.5px; color:var(--muted); line-height:1.3}
+.ins .b .bl small{display:block; color:var(--faint)}
+.ins .b .bt{height:9px; border-radius:5px; background:var(--surface2); overflow:hidden}
+.ins .b .bt i{display:block; height:100%; border-radius:5px; background:var(--moon)}
+.ins .b.good .bt i{background:var(--good)}
+.ins .b.bad .bt i{background:var(--bad)}
+.ins .b .bv{font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; min-width:52px; text-align:right}
+.ins .rd{font-size:13px; margin-top:9px; line-height:1.55}
+.ins .rd b{color:var(--text)}
+.ins .wait{font-size:12.5px; color:var(--muted); line-height:1.55}
+.ins .off{font-size:12px; color:var(--faint)}
 .ftrow{display:flex; align-items:flex-start; gap:10px; padding:11px 0; border-bottom:1px solid var(--line-soft)}
 .ftrow:last-child{border-bottom:0}
 .ftrow .ftxt{flex:1; min-width:0}
@@ -315,6 +333,7 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
 
   <!-- ============ 分析(計画・グラフ・レポート) ============ -->
   <section id="view-analysis" class="hidden">
+    <div class="card" id="insightCard"></div>
     <div class="card" id="planCard"></div>
     <div class="card report" id="reportCard"></div>
     <div class="card" style="padding:12px 18px">
@@ -326,7 +345,7 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
       <div class="legend">日別: 時刻の散布(赤点線=21時) / 週別: 回数</div></div>
     <div class="card"><h2>こころ</h2><div id="chartMood"></div>
       <div class="legend" id="moodLegend"></div></div>
-    <div class="card"><h2>過去のレポート</h2><div id="reportHistory"></div></div>
+    <div class="card" id="reportHistoryCard"><h2>過去のレポート</h2><div id="reportHistory"></div></div>
   </section>
 
   <!-- ============ 設定 ============ -->
@@ -410,7 +429,7 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
 <nav>
   <a href="#home" data-v="home"><span class="ic">🌙</span>ホーム</a>
   <a href="#history" data-v="history"><span class="ic">✏️</span>履歴</a>
-  <a href="#analysis" data-v="analysis"><span class="ic">📈</span>分析</a>
+  <a href="#analysis" data-v="analysis"><span class="ic">💡</span>わかったこと</a>
   <a href="#settings" data-v="settings"><span class="ic">⚙️</span>設定</a>
 </nav>
 
@@ -791,6 +810,7 @@ function applyFeatureVisibility(){
   showIf("checkinCard", ckDefsOn().length > 0 || memo);
   showIf("planCard", HK.feat(state, "goals"));
   showIf("reportCard", HK.feat(state, "aiReport"));
+  showIf("reportHistoryCard", HK.feat(state, "aiReport") && state.reports.length > 0);
 }
 
 /** チップ記録の共通処理: 対象日が過去なら19:00起点にする */
@@ -1120,9 +1140,66 @@ $("fab").onclick = () => {
   }
 };
 
-/* ================= 週次レポート ================= */
+/* ================= わかったこと(ローカル計算・常時表示) ================= */
+const FEAT_LABEL = (f) => (HK.FEATURE_DEFS.find(d => d.f === f) || {}).label || f;
+const fmtMin = (v) => v == null ? "—" : `${Math.floor(v/60)}h${String(Math.round(v%60)).padStart(2,"0")}m`;
+const fmtVal = (unit, v) => unit === "min" ? fmtMin(v) : (v == null ? "—" : v.toFixed(1));
+const fmtDiff = (unit, v) => unit === "min"
+  ? `${Math.abs(v)}分` : `${Math.abs(v).toFixed(1)}ポイント`;
+
+/** 群の副題: 睡眠なら実測平均、フラグ/重さなら日数だけ */
+function groupSub(it, g){
+  if(it.inputUnit === "min" && g.inputMean != null) return `平均${fmtMin(g.inputMean)}・${g.n}日`;
+  return `${g.n}日`;
+}
+function insightRowHtml(it){
+  if(it.status === "off"){
+    return `<div class="ins"><div class="it">${esc(it.title)}</div>
+      <div class="off">「${esc(FEAT_LABEL(it.missingFeature))}」を記録していないため出せません。設定→表示する項目 でONにできます。</div></div>`;
+  }
+  if(it.status === "need_days"){
+    const side = it.scarceSide === "high" ? it.high.label : it.low.label;
+    return `<div class="ins"><div class="it">${esc(it.title)}</div>
+      <div class="wait">まだ言えません。「${esc(side)}」があと <b>${it.shortfall}日</b> たまると比べられます。</div></div>`;
+  }
+  if(it.status === "need_variance"){
+    return `<div class="ins"><div class="it">${esc(it.title)}</div>
+      <div class="wait">毎晩ほぼ同じ睡眠時間で、ばらつきが小さいため比べられません。</div></div>`;
+  }
+  // ok / weak: 2群の棒を並べ、下に読み下し文を置く
+  const vals = [it.high.outcomeMean, it.low.outcomeMean];
+  const max = Math.max(...vals.map(v => Math.abs(v)), it.outcomeUnit === "min" ? 480 : 1);
+  const better = (g) => it.outcomeGoodDirection === "low"
+    ? (g.outcomeMean === Math.min(...vals) ? "good" : "bad")
+    : (g.outcomeMean === Math.max(...vals) ? "good" : "bad");
+  const bar = (g) => `<div class="b ${it.status === "weak" ? "" : better(g)}">
+      <span class="bl">${esc(g.label)}<small>${groupSub(it, g)}</small></span>
+      <span class="bt"><i style="width:${Math.max(3, Math.round(Math.abs(g.outcomeMean)/max*100))}%"></i></span>
+      <span class="bv">${fmtVal(it.outcomeUnit, g.outcomeMean)}</span></div>`;
+  let read;
+  if(it.status === "weak"){
+    read = `はっきりした差は出ていません。`;
+  } else {
+    const hiBetter = it.outcomeGoodDirection === "low" ? it.diff < 0 : it.diff > 0;
+    read = `<b>${esc(hiBetter ? it.high.label : it.low.label)}</b>のほうが、`
+      + `${esc(it.outcomeLabel)}が ${fmtDiff(it.outcomeUnit, it.diff)} `
+      + `${it.outcomeGoodDirection === "low" ? "少なめ" : "長め"}でした。`;
+  }
+  return `<div class="ins"><div class="it">${esc(it.title)}</div>
+    <div class="bars">${bar(it.high)}${bar(it.low)}</div>
+    <div class="rd">${read}</div></div>`;
+}
+function renderInsights(){
+  const ins = HK.buildInsights(state, Date.now(), HK.INSIGHT_DAYS);
+  const live = ins.items.filter(i => i.status !== "off");
+  const off = ins.items.filter(i => i.status === "off");
+  $("insightCard").innerHTML = `<h2>わかったこと</h2>
+    <p class="note" style="margin:0 0 4px">直近${ins.rangeDays}日のうち、記録があるのは${ins.recordedDays}日。平均どうしの比較です。少ない日数の差は偶然のこともあります。</p>
+    ${live.map(insightRowHtml).join("")}${off.map(insightRowHtml).join("")}`;
+}
+
+/* ================= 今月の要約(AIは計算せず読み上げるだけ) ================= */
 let reportErr = null;
-function latestReport(){ return state.reports.length ? state.reports[state.reports.length-1] : null; }
 function weekRangeLabel(weekStartIso){
   const s = new Date(weekStartIso + "T12:00:00");
   const e = new Date(s.getTime() + 6*86400000);
@@ -1157,58 +1234,62 @@ function reportBodyHtml(o){
   if(o.one_liner) h += `<div class="oneliner">${esc(o.one_liner)}</div>`;
   return h;
 }
-function renderReport(){
+const thisMonthIso = () => HK.logicalDateIso(Date.now()).slice(0,7);
+function latestSummary(){
+  const a = state.summaries || [];
+  return a.length ? a[a.length-1] : null;
+}
+function renderSummary(){
   const el = $("reportCard");
-  const r = latestReport();
-  const thisWeek = HK.weekStartIso(Date.now());
-  let html = `<h2>AI週次レポート</h2>` + statsRowHtml();
-  if(r){
-    html += reportBodyHtml(r.report);
-    html += `<p class="gen-note">${weekRangeLabel(r.weekStart)} / ${new Date(r.createdAt).toLocaleDateString("ja-JP")} 生成</p>`;
+  const sm = latestSummary();
+  let html = `<h2>今月の要約</h2>`;
+  if(sm){
+    html += `<div class="summary">${esc(sm.text)}</div>`;
+    if(sm.notes && sm.notes.length) html += `<ul>${sm.notes.map(n=>`<li>${esc(n)}</li>`).join("")}</ul>`;
+    html += `<p class="gen-note">${esc(sm.periodIso)} / ${new Date(sm.createdAt).toLocaleDateString("ja-JP")} 生成</p>`;
   }
   if(!state.settings.apiKey){
-    html += `<p class="gen-note">設定画面で Gemini APIキーを登録すると、毎週の振り返りと「来週の小さな実験」を提案します。</p>`;
+    html += `<p class="gen-note">設定画面で Gemini APIキーを登録すると、上の「わかったこと」の数字を文章にまとめられます。
+      数字の計算はこの端末で完結していて、AIには計算させません。</p>`;
   } else {
-    const hasThisWeek = r && r.weekStart === thisWeek;
-    html += `<button class="btn ${hasThisWeek?"":"primary"}" id="btnGen" style="margin-top:10px">
-      ${hasThisWeek ? "レポートを再生成" : "今週のレポートを生成"}</button>`;
+    const done = sm && sm.periodIso === thisMonthIso();
+    html += `<button class="btn ${done?"":"primary"}" id="btnGen" style="margin-top:10px">
+      ${done ? "要約をつくり直す" : "今月の要約をつくる"}</button>`;
   }
   if(reportErr){
     html += `<details class="err"><summary>前回のエラー詳細(タップで表示)</summary><pre>${esc(reportErr)}</pre></details>`;
   }
   el.innerHTML = html;
-  const bg = $("btnGen"); if(bg) bg.onclick = generateReport;
+  const bg = $("btnGen"); if(bg) bg.onclick = generateSummary;
 }
-async function generateReport(){
+async function generateSummary(){
   const btn = $("btnGen");
   btn.disabled = true; btn.innerHTML = `<span class="spin">◐</span> 生成中…`;
   reportErr = null;
   try{
-    const days = HK.buildDaySummaries(state, Date.now(), 7);
-    const weeks = HK.buildPastWeeks(state, Date.now(), 4);
-    const context = HK.buildContextPayload(state, Date.now());
-    const payload = HK.buildGeminiPayload(days, weeks, state.settings.lastExperiment, context);
+    // 計算はローカルで確定させ、AIには出た数字だけを渡す(生ログは送らない)
+    const insights = HK.buildInsights(state, Date.now(), HK.INSIGHT_DAYS);
+    const payload = HK.buildSummaryPayload(insights);
     const model = HK.resolveModel(state.settings);
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       { method:"POST",
         headers:{ "Content-Type":"application/json", "x-goog-api-key":state.settings.apiKey },
-        body: JSON.stringify(HK.buildGeminiRequestBody(payload, state.settings)) });
+        body: JSON.stringify(HK.buildSummaryRequestBody(payload, state.settings)) });
     const bodyText = await resp.text();
     if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${bodyText.slice(0,600)}`);
-    const parsed = HK.parseGeminiResponse(JSON.parse(bodyText));
+    const parsed = HK.parseSummaryResponse(JSON.parse(bodyText));
     if(parsed.error) throw new Error(parsed.error + "\n" + (parsed.detail||"") + "\n応答: " + bodyText.slice(0,600));
-    const weekStart = HK.weekStartIso(Date.now());
-    state.reports = state.reports.filter(x => x.weekStart !== weekStart);
-    state.reports.push({ weekStart, report: parsed.report, createdAt: Date.now() });
-    const ex = parsed.report.experiment;
-    state.settings.lastExperiment = ex ? `${ex.title}: ${ex.action}` : null;
-    save(); toast("今週のレポートができました");
+    const periodIso = thisMonthIso();
+    if(!state.summaries) state.summaries = [];
+    state.summaries = state.summaries.filter(x => x.periodIso !== periodIso);
+    state.summaries.push({ periodIso, text: parsed.summary.text, notes: parsed.summary.notes, createdAt: Date.now() });
+    save(); toast("今月の要約ができました");
   }catch(e){
     reportErr = String(e && e.message || e);
-    toast("レポートを生成できませんでした。エラー詳細を確認できます");
+    toast("要約をつくれませんでした。エラー詳細を確認できます");
   }
-  renderReport();
+  renderSummary();
 }
 
 /* ================= 計画: 週次目標 ================= */
@@ -1640,7 +1721,7 @@ function renderHistory(){
   renderDayStrip(); renderDayEditor();
 }
 function renderAnalysis(){
-  renderPlan(); renderReport(); renderPeriodSeg();
+  renderInsights(); renderPlan(); renderSummary(); renderPeriodSeg();
   const weekly = histPeriod === "12w";
   const n = histPeriod === "14d" ? 14 : histPeriod === "30d" ? 30 : 12;
   const step = histPeriod === "14d" ? 2 : histPeriod === "30d" ? 5 : 2;
@@ -1847,7 +1928,7 @@ $("btnSaveKey").onclick = async () => {
   state.settings.model = $("inModel").value.trim();
   save();
   const st = $("keyStatus");
-  if(!key){ st.textContent = "キーを削除しました。"; renderReport(); return; }
+  if(!key){ st.textContent = "キーを削除しました。"; renderSummary(); return; }
   st.textContent = "接続を確認しています…";
   try{
     const model = HK.resolveModel(state.settings);
@@ -1858,7 +1939,7 @@ $("btnSaveKey").onclick = async () => {
       : (r.status===400||r.status===401||r.status===403) ? `✕ キーまたはモデル名が無効です(${r.status})。`
       : `✕ 接続できませんでした(${r.status})。時間をおいて再試行してください。`;
   }catch(e){ st.textContent = "✕ ネットワークに接続できませんでした。"; }
-  renderReport();
+  renderSummary();
 };
 $("btnSaveProfile").onclick = () => {
   state.settings.displayName = $("inName").value.trim();

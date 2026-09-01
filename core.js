@@ -184,7 +184,8 @@ HK.emptyState = () => ({
   lastGoalPromptWeek: null, // 週末ポップアップを週1回に制限
   conditions: [],      // 体調ログ {id, emoji, label, startIso, resolvedIso|null, note}
   personalContext: { facts: [], healthChecks: [] }, // 育つ本人情報。facts{id,text,source},healthChecks{id,dateIso,summary,values,imageId}
-  reports: [],
+  reports: [],        // v9以前の週次AIレポート(参照のみ・消さない)
+  summaries: [],      // 今月の要約 {periodIso, text, notes[], createdAt}
   settings: {
     apiKey: "",
     model: "",
@@ -654,8 +655,13 @@ HK.averageBedTimeHHmm = (times) => {
   return p(Math.floor(mod / 60)) + ":" + p(mod % 60);
 };
 
+/**
+ * 「21時以降」のコーヒーを数える。論理日は朝4時区切りなので、0:00-3:59 も同じ夜として数える。
+ * (深夜1時のタップが1杯も数えられていなかった。論理日の定義と揃える)
+ */
 HK.countLateCoffee = (times) =>
-  times.map(HK.parseHHmm).filter((v) => v != null && v >= HK.LATE_COFFEE_HOUR * 60).length;
+  times.map(HK.parseHHmm).filter((v) =>
+    v != null && (v >= HK.LATE_COFFEE_HOUR * 60 || v < HK.DAY_START_HOUR * 60)).length;
 
 const countBy = (labels) => {
   const m = {};
@@ -809,6 +815,152 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment, context) => {
   };
 };
 
+// ---------------- わかったこと(相関レポート) ----------------
+/*
+ * 設計方針:
+ *  - 計算はすべてここ(ローカル)で行う。AIには計算させない。
+ *    30日分のJSONをLLMに渡して平均を出させると毎回数字が揺れ、検証できなくなる。
+ *  - 相関係数(r)は出さない。n=30程度では誤差が大きく、読んでも行動に繋がらない。
+ *    代わりに層別比較(「Aだった日 vs Bだった日」の結果側の平均)を出す。
+ *  - 見る組み合わせは3本に固定する。総当たりで探すと偶然の一致が必ず混ざる。
+ *  - 足りなければ黙る。推定できないなら null。
+ */
+
+HK.INSIGHT_DAYS = 30;           // 既定の集計期間
+HK.INSIGHT_MIN_GROUP = 5;       // 各群に最低これだけの日数が要る
+HK.INSIGHT_SLEEP_GAP_MIN = 30;  // 睡眠時間の両群平均差がこれ未満なら「ばらつき不足」で黙る
+HK.INSIGHT_WEAK_POINT = 0.3;    // 0-3スケールでこの差未満なら「はっきりした差なし」
+HK.INSIGHT_WEAK_MIN = 15;       // 睡眠(分)でこの差未満なら「はっきりした差なし」
+
+const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+const median = (a) => {
+  const v = a.slice().sort((x, y) => x - y), m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+const round1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
+
+/**
+ * 層別比較の共通形。
+ * pairs: [{input, outcome}] 。input/outcome のどちらかが null の日は最初に捨てる(欠損は埋めない)。
+ * isHigh(input): その日を「高い側」に入れるか
+ */
+const compare = (spec, pairs, isHigh) => {
+  const usable = pairs.filter((p) => p.input != null && p.outcome != null);
+  const pick = (want) => usable.filter((p) => isHigh(p.input) === want);
+  const hiP = pick(true), loP = pick(false);
+  const item = {
+    id: spec.id, title: spec.title, outcomeLabel: spec.outcomeLabel,
+    inputUnit: spec.inputUnit, outcomeUnit: spec.outcomeUnit,
+    outcomeGoodDirection: spec.outcomeGoodDirection,
+    usableDays: usable.length,
+    high: { label: spec.highLabel, n: hiP.length, inputMean: null, outcomeMean: null },
+    low: { label: spec.lowLabel, n: loP.length, inputMean: null, outcomeMean: null },
+    diff: null, shortfall: 0, status: "need_days"
+  };
+  const fill = (g, ps) => {
+    g.inputMean = ps.length ? mean(ps.map((p) => p.input)) : null;
+    g.outcomeMean = ps.length ? mean(ps.map((p) => p.outcome)) : null;
+  };
+  fill(item.high, hiP); fill(item.low, loP);
+
+  const smaller = Math.min(hiP.length, loP.length);
+  if (smaller < HK.INSIGHT_MIN_GROUP) {
+    item.shortfall = HK.INSIGHT_MIN_GROUP - smaller;
+    item.scarceSide = hiP.length <= loP.length ? "high" : "low";
+    return item;
+  }
+  // 入力側のばらつきが小さすぎると、比べても意味のある差にならない
+  if (spec.minInputGap != null
+    && Math.abs(item.high.inputMean - item.low.inputMean) < spec.minInputGap) {
+    item.status = "need_variance";
+    return item;
+  }
+  item.diff = item.high.outcomeMean - item.low.outcomeMean;
+  const weakAt = spec.outcomeUnit === "min" ? HK.INSIGHT_WEAK_MIN : HK.INSIGHT_WEAK_POINT;
+  item.status = Math.abs(item.diff) < weakAt ? "weak" : "ok";
+  return item;
+};
+
+/** 表示・AI受け渡し用に数値を丸める(生値は持たない。読む側で丸め方が割れないように) */
+const roundItem = (it) => {
+  const r = (g) => {
+    g.inputMean = it.inputUnit === "min" ? (g.inputMean == null ? null : Math.round(g.inputMean)) : round1(g.inputMean);
+    g.outcomeMean = it.outcomeUnit === "min" ? (g.outcomeMean == null ? null : Math.round(g.outcomeMean)) : round1(g.outcomeMean);
+  };
+  r(it.high); r(it.low);
+  it.diff = it.outcomeUnit === "min" ? (it.diff == null ? null : Math.round(it.diff)) : round1(it.diff);
+  return it;
+};
+
+const OFF = (id, title, feature) => ({ id, title, status: "off", missingFeature: feature });
+
+/**
+ * 直近 nDays 日の「わかったこと」。固定3本。
+ * 遅延(ラグ)の取り方:
+ *   睡眠→イラッと : sleep[d]は「dの朝に起きた睡眠」、checkin[d]は「dの夜」。同じdで正しく前夜→当日になる
+ *   コーヒー→睡眠 : dの夜に飲んだコーヒー → 起床はd+1なので sleep[d+1] と組む
+ *   食事の重さ→眠気: どちらも同じ論理日d
+ */
+HK.buildInsights = (state, endMs, nDays) => {
+  const n = nDays || HK.INSIGHT_DAYS;
+  const days = HK.buildDaySummaries(state, endMs, n);
+  const items = [];
+
+  // 1) 睡眠時間 → その日のイラッと
+  if (!HK.feat(state, "irritation")) {
+    items.push(OFF("sleep_irritation", "睡眠時間 → イラッと", "irritation"));
+  } else {
+    const pairs = days.map((d) => ({ input: d.sleepDurationMin, outcome: d.irritation }));
+    // 個人の中央値で分ける。固定閾値(6h/7h)だと、毎晩ほぼ同じ人は両群とも空になり永遠に出ない。
+    const vals = pairs.filter((p) => p.input != null && p.outcome != null).map((p) => p.input);
+    const mid = vals.length ? median(vals) : null;
+    items.push(roundItem(compare({
+      id: "sleep_irritation", title: "睡眠時間 → イラッと", outcomeLabel: "イラッと",
+      highLabel: "よく寝た日", lowLabel: "寝不足の日",
+      inputUnit: "min", outcomeUnit: "point", outcomeGoodDirection: "low",
+      minInputGap: HK.INSIGHT_SLEEP_GAP_MIN
+    }, pairs, (v) => mid != null && v > mid)));
+  }
+
+  // 2) 21時以降のコーヒー → その夜の睡眠(翌朝に起きる睡眠なので1日ずらす)
+  if (!HK.feat(state, "lateCoffee")) {
+    items.push(OFF("coffee_sleep", "21時以降のコーヒー → その夜の睡眠", "lateCoffee"));
+  } else {
+    const pairs = [];
+    for (let i = 0; i < days.length - 1; i++) {
+      pairs.push({
+        input: HK.countLateCoffee(days[i].coffeeTimesHHmm) > 0 ? 1 : 0,
+        outcome: days[i + 1].sleepDurationMin
+      });
+    }
+    items.push(roundItem(compare({
+      id: "coffee_sleep", title: "21時以降のコーヒー → その夜の睡眠", outcomeLabel: "睡眠",
+      highLabel: "飲んだ夜", lowLabel: "飲まなかった夜",
+      inputUnit: "flag", outcomeUnit: "min", outcomeGoodDirection: "high"
+    }, pairs, (v) => v === 1)));
+  }
+
+  // 3) 食事の重さ → その日の眠気(その日いちばん重かった食事で分ける)
+  if (!HK.feat(state, "mealWeight") || !HK.feat(state, "sleepiness")) {
+    items.push(OFF("meal_sleepiness", "食事の重さ → 眠気",
+      HK.feat(state, "mealWeight") ? "sleepiness" : "mealWeight"));
+  } else {
+    const pairs = days.map((d) => {
+      const ws = d.meals.map((m) => m.weight).filter((w) => w != null);
+      return { input: ws.length ? Math.max.apply(null, ws) : null, outcome: d.sleepiness };
+    });
+    items.push(roundItem(compare({
+      id: "meal_sleepiness", title: "食事の重さ → 眠気", outcomeLabel: "眠気",
+      highLabel: "がっつり食べた日", lowLabel: "軽め〜ふつうの日",
+      inputUnit: "weight", outcomeUnit: "point", outcomeGoodDirection: "low"
+    }, pairs, (v) => v >= 3)));
+  }
+
+  const recorded = days.filter((d) => d.sleepDurationMin != null || d.meals.length > 0
+    || d.irritation != null || d.sleepiness != null || d.exercise != null).length;
+  return { rangeDays: n, recordedDays: recorded, items };
+};
+
 /** グラフの週別ビュー用: 直近 n 週の週次平均(古い順) */
 HK.buildWeeklySeries = (state, endMs, nWeeks) => {
   const out = [];
@@ -921,6 +1073,86 @@ HK.parseGeminiResponse = (respJson) => {
     return { report: o };
   } catch (e) {
     return { error: "レポートの解析に失敗しました。手動で再生成できます。", detail: String(e && e.message || e) };
+  }
+};
+
+// ---------------- 今月の要約(AIは計算せず、出た数字を読み上げるだけ) ----------------
+
+/**
+ * AIに渡すのは「ローカルで確定した数値」だけ。生ログは渡さない。
+ * LLMに平均や相関を計算させると毎回数字が揺れて検証できなくなるため、役割を読み上げに限定する。
+ */
+HK.buildSummaryPayload = (insights) => ({
+  range_days: insights.rangeDays,
+  recorded_days: insights.recordedDays,
+  findings: insights.items.map((it) => {
+    if (it.status === "off") return { id: it.id, title: it.title, status: "not_tracked" };
+    return {
+      id: it.id, title: it.title, status: it.status,
+      usable_days: it.usableDays,
+      outcome_unit: it.outcomeUnit,
+      lower_is_better: it.outcomeGoodDirection === "low",
+      groups: [
+        { label: it.high.label, days: it.high.n, input_mean: it.high.inputMean, outcome_mean: it.high.outcomeMean },
+        { label: it.low.label, days: it.low.n, input_mean: it.low.inputMean, outcome_mean: it.low.outcomeMean }
+      ],
+      difference: it.diff,
+      days_still_needed: it.shortfall || 0
+    };
+  })
+});
+
+HK.SUMMARY_SCHEMA = '{"summary":"2〜3文の要約","notes":["補足(最大2つ。なければ空配列)"]}';
+
+HK.buildSummarySystemPrompt = (settings) => {
+  const st = settings || {};
+  const profile = (st.profile && st.profile.trim()) ? st.profile.trim() : HK.DEFAULT_PROFILE;
+  const tone = HK.TONE_LINES[st.tone] || HK.TONE_LINES.colleague;
+  const name = st.displayName && st.displayName.trim() ? "- ユーザーの呼び名: " + st.displayName.trim() + "さん" : "";
+  return [
+    "あなたは、すでに計算済みの健康データの集計結果を、日本語で読みやすく言い換える担当です。",
+    "",
+    "# 絶対に守るルール",
+    "- 計算しない。平均・差・割合を自分で出し直さない。payload の数値をそのまま使う。",
+    "- payload に無い数値を書かない。存在しない項目について語らない。",
+    '- status が "need_days" の項目は「まだ言えない。あと何日で出せる」とだけ書く。差を推測しない。',
+    '- status が "need_variance" の項目は「ばらつきが小さくて比べられない」とだけ書く。',
+    '- status が "weak" の項目は「はっきりした差は出ていない」と正直に書く。無理に意味を持たせない。',
+    '- status が "not_tracked" の項目には触れない。',
+    "- 説教・一般論(「規則正しい生活を」等)は禁止。行動の指示もしない。事実の読み上げに徹する。",
+    "- 記録しなかった日を責めない。欠損は欠損のまま扱う。",
+    "- 1日1〜2食の食事スタイルは本人の合理的な選択。食事回数に言及しない。",
+    tone,
+    "- 全フィールド合計で300字以内。",
+    "",
+    "# ユーザープロファイル(語り口を合わせるための背景。数値の代わりに使わないこと)",
+    profile,
+    name,
+    "",
+    "# 出力形式",
+    "必ず次のJSONスキーマに従い、JSON以外を一切出力しないこと:",
+    HK.SUMMARY_SCHEMA
+  ].filter(Boolean).join("\n");
+};
+
+HK.buildSummaryRequestBody = (payload, settings) => ({
+  systemInstruction: { parts: [{ text: HK.buildSummarySystemPrompt(settings) }] },
+  contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }],
+  generationConfig: { temperature: 0.6, maxOutputTokens: 4096, responseMimeType: "application/json" }
+});
+
+HK.parseSummaryResponse = (respJson) => {
+  try {
+    const cand = respJson.candidates && respJson.candidates[0];
+    if (!cand) throw new Error("no candidates: " + JSON.stringify(respJson).slice(0, 300));
+    const parts = (cand.content && cand.content.parts) || [];
+    const text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("");
+    if (!text) throw new Error("empty text (finishReason=" + (cand.finishReason || "?") + ")");
+    const o = JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+    if (!o.summary || typeof o.summary !== "string") throw new Error("no summary in JSON");
+    return { summary: { text: o.summary, notes: Array.isArray(o.notes) ? o.notes.slice(0, 2) : [] } };
+  } catch (e) {
+    return { error: "要約の解析に失敗しました。もう一度試せます。", detail: String(e && e.message || e) };
   }
 };
 

@@ -695,6 +695,181 @@ test("migrate: 配列であるべき設定がnullでも既定に戻る(設定画
   assertEq(HK.DEFAULT_MEAL_KINDS[0].label, "サラダ・野菜");
 });
 
+test("countLateCoffee: 深夜0-3時台も同じ夜として数える(論理日の定義と揃える)", () => {
+  assertEq(HK.countLateCoffee(["21:00", "23:30", "01:00", "03:59"]), 4);
+  assertEq(HK.countLateCoffee(["04:00", "12:00", "20:59"]), 0, "朝4時以降〜21時前は数えない");
+  assertEq(HK.countLateCoffee(["ぬるぽ", null]), 0, "壊れた値は無視");
+});
+
+// ================= わかったこと(相関レポート) =================
+/** 相関テスト用: 論理日dayIsoに 睡眠/イラッと/眠気/食事の重さ/深夜コーヒー を仕込む */
+function seed(s, dayIso, o){
+  if (o.sleepMin != null) {
+    const wake = HK.msFromLogicalDate(dayIso, 7 * 60);
+    HK.setSleepManual(s, dayIso, wake - o.sleepMin * 60000, wake);
+  }
+  if (o.irritation != null) HK.setCheckin(s, dayIso, "irritation", o.irritation);
+  if (o.sleepiness != null) HK.setCheckin(s, dayIso, "sleepiness", o.sleepiness);
+  if (o.weight != null) HK.logEvent(s, "MEAL", null, HK.msFromLogicalDate(dayIso, 20 * 60), null, o.weight);
+  if (o.lateCoffee) HK.logEvent(s, "COFFEE", null, HK.msFromLogicalDate(dayIso, 22 * 60));
+}
+const D = (i) => "2026-08-" + String(i).padStart(2, "0");   // 2026-08-01 .. 08-30
+const END = at(2026, 8, 30, 23, 0);
+const pick = (ins, id) => ins.items.find((x) => x.id === id);
+/** 全機能ONのstate(相関3本を全部評価させる) */
+function insightState(){
+  const s = HK.emptyState();
+  for (const d of HK.FEATURE_DEFS) HK.setFeature(s, d.f, true);
+  return s;
+}
+
+test("buildInsights: 睡眠→イラッと。中央値で分け、両群の実測平均と差を返す", () => {
+  const s = insightState();
+  // 前半10日=寝不足(5h)でイラッと3 / 後半10日=よく寝た(8h)でイラッと1
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 3 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { sleepMin: 480, irritation: 1 });
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.status, "ok");
+  assertEq(it.high.n, 10); assertEq(it.low.n, 10);
+  assertEq(it.high.inputMean, 480); assertEq(it.low.inputMean, 300);
+  assertEq(it.high.outcomeMean, 1); assertEq(it.low.outcomeMean, 3);
+  assertEq(it.diff, -2, "よく寝た日のほうがイラッとが2ポイント少ない");
+  assertEq(it.outcomeGoodDirection, "low");
+  assertEq(it.outcomeLabel, "イラッと", "何が増減したのか言えるだけの情報を持つ");
+});
+test("buildInsights: 片方の群が5日未満なら数字を出さず、あと何日かを返す", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 3 });
+  for (let i = 11; i <= 13; i++) seed(s, D(i), { sleepMin: 480, irritation: 1 });  // 3日だけ
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.status, "need_days");
+  assertEq(it.shortfall, 2, "あと2日");
+  assertEq(it.scarceSide, "high", "足りないのは「よく寝た日」の側");
+  assertEq(it.diff, null, "足りないうちは差を出さない");
+});
+test("buildInsights: 睡眠時間のばらつきが30分未満なら比較しない", () => {
+  const s = insightState();
+  // 毎晩ほぼ同じ(6h00m〜6h10m)。中央値では割れるが、差が小さすぎて意味がない
+  for (let i = 1; i <= 20; i++) seed(s, D(i), { sleepMin: 360 + (i % 2 ? 0 : 10), irritation: i % 3 });
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.status, "need_variance");
+  assertEq(it.diff, null);
+});
+test("buildInsights: 差がごく小さいときは ok ではなく weak(「効いていない」も結果)", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 2 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { sleepMin: 480, irritation: 2 });
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.status, "weak");
+  assertEq(it.diff, 0);
+});
+test("buildInsights: コーヒーは「その夜」の睡眠=翌朝の記録と組む(1日ずらす)", () => {
+  const s = insightState();
+  // 偶数日の夜に飲む → 翌日(奇数日)の睡眠が短い、という構造を仕込む
+  for (let i = 1; i <= 24; i++) {
+    const drank = i % 2 === 0;
+    seed(s, D(i), { lateCoffee: drank, sleepMin: (i % 2 === 1 && i > 1) ? 300 : 480 });
+  }
+  const it = pick(HK.buildInsights(s, END, 30), "coffee_sleep");
+  assertEq(it.status, "ok");
+  assert(it.high.outcomeMean < it.low.outcomeMean, "飲んだ夜のほうが睡眠が短い");
+  assertEq(it.outcomeUnit, "min");
+  assert(it.high.n >= 5 && it.low.n >= 5);
+});
+test("buildInsights: 深夜1時のコーヒーも「飲んだ夜」に数える", () => {
+  const s = insightState();
+  HK.logEvent(s, "COFFEE", null, HK.msFromLogicalDate("2026-08-10", 60)); // 論理日8/10の深夜1時
+  const days = HK.buildDaySummaries(s, END, 30);
+  const d = days.find((x) => x.dateIso === "2026-08-10");
+  assertEq(HK.countLateCoffee(d.coffeeTimesHHmm), 1);
+});
+test("buildInsights: 食事の重さはその日の最大で分ける(がっつり vs 軽め〜ふつう)", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { weight: 3, sleepiness: 3 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { weight: 1, sleepiness: 1 });
+  // 軽めとがっつりが同じ日に混ざったら「がっつり側」に入る
+  seed(s, D(21), { weight: 1, sleepiness: 3 }); seed(s, D(21), { weight: 3 });
+  const it = pick(HK.buildInsights(s, END, 30), "meal_sleepiness");
+  assertEq(it.status, "ok");
+  assertEq(it.high.n, 11, "がっつりが1品でもあれば「がっつり食べた日」");
+  assertEq(it.low.n, 10);
+  assertEq(it.diff, 2);
+});
+test("buildInsights: 記録ゼロでも落ちず、3本すべてが need_days で返る", () => {
+  const ins = HK.buildInsights(insightState(), END, 30);
+  assertEq(ins.items.length, 3);
+  assertEq(ins.recordedDays, 0);
+  assert(ins.items.every((i) => i.status === "need_days"), "数字は一切出さない");
+  assert(ins.items.every((i) => i.diff == null));
+});
+test("buildInsights: 項目がOFFなら計算せず off で返す(既定は21時コーヒーがOFF)", () => {
+  const ins = HK.buildInsights(HK.emptyState(), END, 30);
+  const c = pick(ins, "coffee_sleep");
+  assertEq(c.status, "off");
+  assertEq(c.missingFeature, "lateCoffee");
+  assertEq(pick(ins, "sleep_irritation").status, "need_days", "既定ONの軸は計算される");
+});
+test("buildInsights: 欠損日は捨てる。埋めない", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 3 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { sleepMin: 480, irritation: 1 });
+  for (let i = 21; i <= 28; i++) seed(s, D(i), { sleepMin: 400 });   // イラッと未記録
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.usableDays, 20, "両方そろった日だけ使う");
+  assertEq(it.high.n + it.low.n, 20);
+});
+
+// ================= 今月の要約(AIは読み上げるだけ) =================
+test("buildSummaryPayload: 渡すのは確定済みの数値だけ。生ログは含めない", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 3 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { sleepMin: 480, irritation: 1 });
+  const pl = HK.buildSummaryPayload(HK.buildInsights(s, END, 30));
+  const json = JSON.stringify(pl);
+  assert(!/"t":|events|checkin|bed|wake/.test(json), "生ログ・時刻が混ざらない: " + json.slice(0, 200));
+  const f = pl.findings.find((x) => x.id === "sleep_irritation");
+  assertEq(f.status, "ok");
+  assertEq(f.difference, -2);
+  assertEq(f.groups.map((g) => g.days), [10, 10]);
+  assertEq(f.lower_is_better, true);
+});
+test("buildSummaryPayload: OFFの項目は not_tracked として渡す", () => {
+  const pl = HK.buildSummaryPayload(HK.buildInsights(HK.emptyState(), END, 30));
+  assertEq(pl.findings.find((x) => x.id === "coffee_sleep").status, "not_tracked");
+});
+test("buildSummarySystemPrompt: 計算禁止とstatus別の扱いを必ず含む", () => {
+  const p = HK.buildSummarySystemPrompt(null);
+  assert(p.includes("計算しない"), "計算禁止の明示");
+  assert(p.includes("payload に無い数値を書かない"));
+  for (const st of ["need_days", "need_variance", "weak", "not_tracked"])
+    assert(p.includes(st), st + " の扱いが書かれている");
+  assert(p.includes("JSON以外を一切出力しないこと"));
+});
+test("buildSummaryRequestBody: maxOutputTokensは4096(思考トークンで尻切れさせない)", () => {
+  const b = HK.buildSummaryRequestBody({ a: 1 }, { tone: "analyst" });
+  assertEq(b.generationConfig.maxOutputTokens, 4096);
+  assertEq(b.generationConfig.responseMimeType, "application/json");
+  assert(b.systemInstruction.parts[0].text.includes("アナリスト"), "トーン設定が効く");
+});
+test("parseSummaryResponse: 思考パーツとコードフェンスを除去して解釈する", () => {
+  const r = HK.parseSummaryResponse({ candidates: [{ content: { parts: [
+    { text: "考え中...", thought: true },
+    { text: '```json\n{"summary":"よく寝た日はイラッとが2ポイント少なめでした。","notes":["まだ20日ぶんです"]}\n```' }
+  ] } }] });
+  assertEq(r.summary.text, "よく寝た日はイラッとが2ポイント少なめでした。");
+  assertEq(r.summary.notes, ["まだ20日ぶんです"]);
+});
+test("parseSummaryResponse: 壊れた応答は原因を切り分けられる形でエラーを返す", () => {
+  const r = HK.parseSummaryResponse({ candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [] } }] });
+  assert(r.error && r.detail.includes("MAX_TOKENS"), "detailに手がかりが残る: " + JSON.stringify(r));
+  assert(!r.summary);
+});
+
+test("buildInsights: 3本すべてが結果側の名前を持つ(「何が」少ないのか言えるように)", () => {
+  const ins = HK.buildInsights(insightState(), END, 30);
+  assertEq(ins.items.map((i) => i.outcomeLabel), ["イラッと", "睡眠", "眠気"]);
+});
+
 // ================= 結果 =================
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
