@@ -1,5 +1,11 @@
 /**
- * ヘルスきち core.js v3 — ロジック層(UI非依存・Nodeでテスト可能)
+ * ヘルスきち core.js v4 — ロジック層(UI非依存・Nodeでテスト可能)
+ *
+ * v3からの変更(2026-09 再設計「本当に必要なものだけ」):
+ *   - 機能トグル(HK.FEATURE_DEFS / settings.features)を導入。項目は削除せず「隠す」だけ
+ *   - 食事に weight(1=軽め/2=ふつう/3=がっつり)を追加。眠気との相関を見るための主軸
+ *   - 夜のチェックインに sleepiness(眠気 0-3) を追加
+ *   - 種類を記録しない食事に tier をでっち上げない(null のまま)
  *
  * v2からの変更(2026-07 施主フィードバック):
  *   - 「1日」を朝4時区切りの論理日に統一(深夜2時の食事は前日の夜食)
@@ -81,6 +87,51 @@ HK.DEFAULT_ACTIVITY_CHIPS = ["歩く", "階段", "筋トレ", "ランニング",
 HK.TONES = { colleague: "同僚", cheer: "チア", analyst: "アナリスト" };
 
 HK.MEAL_TIERS = { 1: "good", 2: "normal", 3: "junk" };
+// 食事の「重さ」。眠気との相関を見る主軸(健康度tierより食後の眠気を説明する)。
+HK.MEAL_WEIGHTS = { 1: "light", 2: "normal", 3: "heavy" };
+
+// ---------------- 機能トグル ----------------
+// 「消すのではなく隠す」ための単一の真実(Single Source of Truth)。
+// UI側に表示条件をベタ書きせず、必ず HK.feat(state, "xxx") 経由で参照する。
+// def: 新規インストール時の既定。最小構成(1日6〜7タップ)になるよう選んである。
+// group: "core"=毎日の記録項目 / "extra"=拡張機能
+HK.FEATURE_DEFS = [
+  { f: "sleepQuality",  group: "core",  def: true,  label: "眠りの質",           hint: "朝に1タップ。あさい/ふつう/ぐっすり" },
+  { f: "sleepiness",    group: "core",  def: true,  label: "眠気",               hint: "夜に1タップ。食べ物との相関に使う" },
+  { f: "irritation",    group: "core",  def: true,  label: "イラッと",           hint: "夜に1タップ。睡眠との相関に使う" },
+  { f: "mealWeight",    group: "core",  def: true,  label: "食事の重さ",         hint: "食べたら1タップ。軽め/ふつう/がっつり" },
+  { f: "exercise",      group: "core",  def: true,  label: "今日の運動量",       hint: "夜に1タップ。全然〜たくさん" },
+  { f: "lateCoffee",    group: "core",  def: false, label: "21時以降のコーヒー", hint: "1タップ。睡眠への影響を見たいとき" },
+  { f: "mood",          group: "core",  def: false, label: "きぶん",             hint: "5段階。「イラッと」と情報が重なる" },
+  { f: "focus",         group: "core",  def: false, label: "はかどり",           hint: "4段階。「眠気」と情報が重なる" },
+  { f: "mealKind",      group: "core",  def: false, label: "食事の種類・お店",   hint: "カタログから選ぶ。入力は確実に増える" },
+  { f: "activityChips", group: "core",  def: false, label: "運動チップ",         hint: "歩く/階段/筋トレ など。運動量と重なる" },
+  { f: "memo",          group: "core",  def: false, label: "メモ",               hint: "1日ひとつの自由入力" },
+  { f: "goals",         group: "extra", def: false, label: "週の目標とふりかえり", hint: "週次目標と週末のポップアップ" },
+  { f: "aiReport",      group: "extra", def: false, label: "AIレポート",         hint: "Geminiに文章でまとめてもらう" }
+];
+
+HK.DEFAULT_FEATURES = () => {
+  const o = {};
+  for (const d of HK.FEATURE_DEFS) o[d.f] = d.def;
+  return o;
+};
+
+/** 機能がONか。未設定・未知キーは定義側の既定へフォールバックする(空フォールバック禁止の原則) */
+HK.feat = (state, f) => {
+  const fx = state && state.settings && state.settings.features;
+  if (fx && Object.prototype.hasOwnProperty.call(fx, f)) return !!fx[f];
+  const d = HK.FEATURE_DEFS.find((x) => x.f === f);
+  return d ? d.def : false;
+};
+
+/** 機能のON/OFF。未知キーは false を返して無視する。 */
+HK.setFeature = (state, f, on) => {
+  if (!HK.FEATURE_DEFS.some((d) => d.f === f)) return false;
+  if (!state.settings.features) state.settings.features = HK.DEFAULT_FEATURES();
+  state.settings.features[f] = !!on;
+  return true;
+};
 
 // ---------------- 日付ユーティリティ ----------------
 
@@ -121,11 +172,13 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 9,
-  events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label(=種類), tier(MEALのみ1-3), place(MEALの店・任意)}
+  version: 10,
+  // events: {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label(=種類),
+  //          tier(MEALの健康度1-3。種類未記録ならnull), weight(MEALの重さ1-3), place(店・任意)}
+  events: [],
   nextEventId: 1,
   sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
-  checkin: {},         // 論理日 -> {mood?:1-5, focus?:1-4, irritation?:0-3}
+  checkin: {},         // 論理日 -> {mood?:1-5, focus?:1-4, irritation?:0-3, sleepiness?:0-3, note?, kirokuNote?}
   exercise: {},        // 論理日 -> 0-3 (全然/すこし/ふつう/たくさん)
   goals: {},           // 週(月曜ISO) -> {sleepMin?, greenDays?, exerciseDays?, junkMax?, lateCoffeeMax?}
   lastGoalPromptWeek: null, // 週末ポップアップを週1回に制限
@@ -139,6 +192,7 @@ HK.emptyState = () => ({
     mealChips: HK.DEFAULT_MEAL_CHIPS.slice(),
     coffeeChips: HK.DEFAULT_COFFEE_CHIPS.slice(),
     activityChips: HK.DEFAULT_ACTIVITY_CHIPS.slice(),
+    features: HK.DEFAULT_FEATURES(), // 表示する項目のON/OFF。項目は消さず隠すだけ
     logMode: "batch",     // batch=まとめて記録 / quick=都度記録
     displayName: "",
     profile: "",          // 空ならHK.DEFAULT_PROFILEを使用
@@ -146,11 +200,17 @@ HK.emptyState = () => ({
     lastExperiment: null
   },
   pendingBed: null,
-  lastActiveAt: null
+  lastActiveAt: null,
+  pendingFeatureNotice: false  // v10で項目を隠された既存ユーザーへ、戻し方を1回だけ案内する
 });
 
 /** 旧バージョン(v1/v2)のstateを現行スキーマへ移行 */
 HK.migrate = (s) => {
+  // settings.features の有無は、下の既定値補完ループで埋まる前に判定する必要がある
+  const hadFeatures = !!(s.settings && s.settings.features);
+  // 移行元のバージョン。tier=null の意味がv10で変わるので、判定に必要。
+  const fromVersion = +(s.version) || 1;
+  if (!s.settings) s.settings = {};   // 手編集されたJSONのimportで落ちないように
   const base = HK.emptyState();
   for (const k of Object.keys(base)) if (!(k in s)) s[k] = base[k];
   for (const k of Object.keys(base.settings)) if (!(k in s.settings)) s.settings[k] = base.settings[k];
@@ -158,7 +218,9 @@ HK.migrate = (s) => {
     if (e.type === "STAIRS") return Object.assign({}, e, { type: "ACTIVITY", label: "階段" });
     if (e.type === "WALK") return Object.assign({}, e, { type: "ACTIVITY", label: "散歩" });
     if (e.type === "HEALTH") return Object.assign({}, e, { type: "MEAL", tier: 1 });      // 健康チップ→良い食事
-    if (e.type === "MEAL" && e.tier == null) return Object.assign({}, e, { tier: 2 });    // 旧食事→ふつう
+    // v10より前は「tier未設定=ふつう」だった。v10以降の null は「種類を記録していない」
+    // という意味を持つ確定値なので、絶対に埋めない(埋めると重さだけの食事が🟡に化ける)。
+    if (e.type === "MEAL" && e.tier == null && fromVersion < 10) return Object.assign({}, e, { tier: 2 });
     return e;
   });
   let id = s.nextEventId || 1;
@@ -196,12 +258,32 @@ HK.migrate = (s) => {
       }
     }
   }
+  // 配列であるべき設定が null/壊れた値で入っている場合は既定へ戻す。
+  // (手編集されたJSONのimportで、設定画面が .map で落ちるのを防ぐ)
+  const ARRAY_SETTINGS = { mealKinds: "DEFAULT_MEAL_KINDS", mealChips: "DEFAULT_MEAL_CHIPS",
+    coffeeChips: "DEFAULT_COFFEE_CHIPS", activityChips: "DEFAULT_ACTIVITY_CHIPS" };
+  for (const [key, defName] of Object.entries(ARRAY_SETTINGS)) {
+    if (!Array.isArray(s.settings[key])) {
+      s.settings[key] = HK[defName].map((v) => (typeof v === "object" ? Object.assign({}, v) : v));
+    }
+  }
   // conditions / personalContext の補完(nested配列の健全性も保証・非破壊)
   if (!Array.isArray(s.conditions)) s.conditions = [];
   if (!s.personalContext || typeof s.personalContext !== "object") s.personalContext = { facts: [], healthChecks: [] };
   if (!Array.isArray(s.personalContext.facts)) s.personalContext.facts = [];
   if (!Array.isArray(s.personalContext.healthChecks)) s.personalContext.healthChecks = [];
-  s.version = 9;
+  // v10: 機能トグル。既存ユーザーには最小構成の新既定を当て、戻し方を1回だけ案内する。
+  if (!hadFeatures) {
+    const hasData = (s.events && s.events.length > 0)
+      || Object.keys(s.sleep || {}).length > 0
+      || Object.keys(s.checkin || {}).length > 0;
+    if (hasData) s.pendingFeatureNotice = true;
+  } else {
+    // 後から増えたフラグだけ既定で補完する。ユーザーが選んだ値は絶対に上書きしない。
+    for (const d of HK.FEATURE_DEFS)
+      if (!(d.f in s.settings.features)) s.settings.features[d.f] = d.def;
+  }
+  s.version = 10;
   return s;
 };
 
@@ -378,7 +460,7 @@ HK.setSleepManual = (state, dateIso, bedMs, wakeMs) => {
 // ---------------- チェックイン・運動量 ----------------
 
 HK.setCheckin = (state, dateIso, field, value) => {
-  if (!["mood", "focus", "irritation", "note", "kirokuNote"].includes(field)) return false;
+  if (!["mood", "focus", "irritation", "sleepiness", "note", "kirokuNote"].includes(field)) return false;
   if (!state.checkin[dateIso]) state.checkin[dateIso] = {};
   state.checkin[dateIso][field] = value;
   return true;
@@ -396,9 +478,14 @@ HK.setExercise = (state, dateIso, level) => { state.exercise[dateIso] = level; r
 
 // ---------------- イベント記録 ----------------
 
-HK.logEvent = (state, type, label, nowMs, tier) => {
+HK.logEvent = (state, type, label, nowMs, tier, weight) => {
   const e = { id: state.nextEventId++, t: nowMs, type, label: label || null };
-  if (type === "MEAL") e.tier = tier || 2;
+  if (type === "MEAL") {
+    // 種類(label)が分かるならそのtierを使う。種類を記録していないなら null のまま。
+    // 「ふつう(2)」を勝手に入れると、記録していない健康度をグラフが語り出す。
+    e.tier = tier != null ? tier : (label ? HK.mealKindMeta(label).tier : null);
+    e.weight = weight != null ? weight : null;
+  }
   state.events.push(e);
   state.events.sort((a, b) => a.t - b.t);
   return e.id;
@@ -441,6 +528,14 @@ HK.setEventTier = (state, id, tier) => {
   const e = state.events.find((x) => x.id === id);
   if (!e || e.type !== "MEAL") return false;
   e.tier = tier;
+  return true;
+};
+
+/** 食事の重さ weight(1=軽め/2=ふつう/3=がっつり)を修正。MEALのみ。null で解除。 */
+HK.setEventWeight = (state, id, weight) => {
+  const e = state.events.find((x) => x.id === id);
+  if (!e || e.type !== "MEAL") return false;
+  e.weight = weight == null ? null : weight;
   return true;
 };
 
@@ -594,12 +689,17 @@ HK.buildDaySummaries = (state, endMs, nDays) => {
       kirokuNote: ck.kirokuNote ? String(ck.kirokuNote).slice(0, 80) : null,
       coffeeTimesHHmm: of("COFFEE").map((e) => HK.hhmm(e.t)),
       coffeePlaces: of("COFFEE").map((e) => e.label).filter(Boolean),
-      meals: meals.map((e) => ({ tier: e.tier || 2, kind: e.label || null, place: e.place || null })),
+      meals: meals.map((e) => ({
+        tier: e.tier != null ? e.tier : null,
+        weight: e.weight != null ? e.weight : null,
+        kind: e.label || null, place: e.place || null
+      })),
       activityLabels: of("ACTIVITY").map((e) => e.label),
       noMeal: of("NO_MEAL").length > 0,
       mood: ck.mood != null ? ck.mood : null,
       focus: ck.focus != null ? ck.focus : null,
       irritation: ck.irritation != null ? ck.irritation : null,
+      sleepiness: ck.sleepiness != null ? ck.sleepiness : null,
       exercise: state.exercise[iso] != null ? state.exercise[iso] : null,
       steps: null
     });
@@ -723,6 +823,7 @@ HK.buildWeeklySeries = (state, endMs, nWeeks) => {
       moodAvg: avgOrNull(days.map((d) => d.mood), true),
       focusAvg: avgOrNull(days.map((d) => d.focus), true),
       irritationAvg: avgOrNull(days.map((d) => d.irritation), true),
+      sleepinessAvg: avgOrNull(days.map((d) => d.sleepiness), true),
       exerciseAvg: avgOrNull(days.map((d) => d.exercise), true),
       lateCoffee: HK.countLateCoffee(coffee)
     });

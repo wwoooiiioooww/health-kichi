@@ -158,7 +158,7 @@ test("buildGeminiPayload: meal_tier_countsが種類別に集計", () => {
 // ================= migrate(後方互換・非破壊) =================
 test("migrate: 空でも現行スキーマ(v9)に整う", () => {
   const s = HK.migrate({});
-  assertEq(s.version, 9);
+  assertEq(s.version, 10);
   assert(Array.isArray(s.events));
   assert(s.settings && Array.isArray(s.settings.mealKinds));
   assert(s.goals && typeof s.goals === "object");
@@ -247,7 +247,7 @@ test("buildDaySummaries: meals は kind と place を分離保持", () => {
   const id = HK.logEvent(s, "MEAL", "魚・海鮮", t, 1);
   HK.setEventPlace(s, id, "自炊");
   const days = HK.buildDaySummaries(s, t, 1);
-  assertEq(days[0].meals[0], { tier: 1, kind: "魚・海鮮", place: "自炊" });
+  assertEq(days[0].meals[0], { tier: 1, weight: null, kind: "魚・海鮮", place: "自炊" });
 });
 test("buildGeminiPayload: meal_kind_counts / meal_place_counts", () => {
   const s = HK.emptyState();
@@ -262,7 +262,7 @@ test("migrate: v5 string配列 → object配列(非破壊・カスタム保持)"
   const s = HK.migrate({ version: 5, settings: { mealKinds: ["サラダ・野菜", "自作カレー"] } });
   assertEq(s.settings.mealKinds[0], { label: "サラダ・野菜", emoji: "🥗", tier: 1 });
   assertEq(s.settings.mealKinds[1], { label: "自作カレー", emoji: "🍽", tier: 2 });
-  assertEq(s.version, 9);
+  assertEq(s.version, 10);
 });
 test("migrate: 旧mealKinds既定 → 新カタログへ差し替え(MECE版)", () => {
   const s = HK.migrate({ settings: { mealKinds: HK.LEGACY_MEAL_KINDS_V5.slice() } });
@@ -565,6 +565,134 @@ test("importSleepText: 既存の記録は上書きしない(手で直した値�
   assertEq(r.skipped, 1);
   assertEq(s.sleep["2026-07-23"].durationMin, 8 * 60, "既存はそのまま");
   assertEq(s.sleep["2026-07-22"].source, "IMPORT");
+});
+
+// ================= v10: 機能トグル =================
+test("FEATURE_DEFS: 既定は最小構成(ONは睡眠の質・眠気・イラッと・食事の重さ・運動量の5つだけ)", () => {
+  const on = HK.FEATURE_DEFS.filter((d) => d.def).map((d) => d.f).sort();
+  assertEq(on, ["exercise", "irritation", "mealWeight", "sleepQuality", "sleepiness"]);
+  assert(HK.FEATURE_DEFS.every((d) => d.label && d.hint && ["core", "extra"].includes(d.group)),
+    "全フラグに表示用のlabel/hint/groupがある");
+  const fs = HK.FEATURE_DEFS.map((d) => d.f);
+  assertEq(fs.length, new Set(fs).size, "フラグ名の重複なし");
+});
+test("feat: 未設定・未知キーは定義側の既定へフォールバックする", () => {
+  const s = HK.emptyState();
+  assert(HK.feat(s, "sleepiness"), "既定ON");
+  assert(!HK.feat(s, "mood"), "既定OFF");
+  delete s.settings.features;
+  assert(HK.feat(s, "mealWeight"), "features自体が無くても既定に落ちる");
+  assert(!HK.feat(s, "存在しない機能"), "未知キーはfalse");
+  assert(HK.feat(null, "sleepiness"), "stateがnullでも落ちず、定義側の既定を返す");
+});
+test("setFeature: 既知キーだけ書き換わる。未知キーは無視", () => {
+  const s = HK.emptyState();
+  assert(HK.setFeature(s, "mood", true));
+  assert(HK.feat(s, "mood"));
+  assert(!HK.setFeature(s, "nope", true), "未知キーはfalseを返す");
+  assert(!("nope" in s.settings.features));
+});
+test("migrate v9→v10: 既存ユーザーは最小構成になり、案内フラグが立つ", () => {
+  const old = HK.emptyState();
+  delete old.settings.features;
+  delete old.pendingFeatureNotice;
+  old.version = 9;
+  HK.logEvent(old, "MEAL", "麺類", at(2026, 7, 24, 20, 0), 2);
+  const s = HK.migrate(old);
+  assertEq(s.version, 10);
+  assert(!HK.feat(s, "mood"), "きぶんは隠れる");
+  assert(HK.feat(s, "sleepiness"), "眠気はON");
+  assert(!HK.feat(s, "lateCoffee"), "21時コーヒーも既定OFF");
+  assertEq(s.pendingFeatureNotice, true, "戻し方の案内を1回出す");
+});
+test("migrate v10: データが無い新規は案内を出さない", () => {
+  const s = HK.migrate({ version: 9, settings: {} });
+  assert(!s.pendingFeatureNotice, "空stateに案内は不要");
+});
+test("migrate v10: ユーザーが選んだフラグは上書きせず、増えた分だけ既定で補う", () => {
+  const s = HK.migrate({ version: 10, settings: { features: { mood: true } } });
+  assert(HK.feat(s, "mood"), "ユーザーがONにした値を守る");
+  assert(HK.feat(s, "sleepiness"), "未知のフラグは既定で補完");
+  assertEq(Object.keys(s.settings.features).length, HK.FEATURE_DEFS.length);
+});
+test("migrate: settingsが無いJSONをimportしても落ちない", () => {
+  const s = HK.migrate({ version: 8, events: [] });
+  assertEq(s.version, 10);
+  assert(s.settings.features, "featuresが補完される");
+});
+
+// ================= v10: 食事の重さ / 眠気 =================
+test("logEvent: 種類を記録しない食事のtierはnull(ふつうをでっち上げない)", () => {
+  const s = HK.emptyState();
+  HK.logEvent(s, "MEAL", null, at(2026, 7, 24, 20, 0), null, 3);
+  assertEq(s.events[0].tier, null, "健康度は未記録のままnull");
+  assertEq(s.events[0].weight, 3, "重さだけ入る");
+});
+test("logEvent: 種類が分かるならカタログのtierを引く(明示tierが最優先)", () => {
+  const s = HK.emptyState();
+  HK.logEvent(s, "MEAL", "バーガー・FF", at(2026, 7, 24, 20, 0));
+  assertEq(s.events[0].tier, 3, "カタログから3");
+  HK.logEvent(s, "MEAL", "バーガー・FF", at(2026, 7, 24, 21, 0), 1);
+  assertEq(s.events[1].tier, 1, "明示指定が勝つ");
+});
+test("logEvent: weight未指定はnull。COFFEEにweightは付かない", () => {
+  const s = HK.emptyState();
+  HK.logEvent(s, "MEAL", "寿司", at(2026, 7, 24, 20, 0), 1);
+  assertEq(s.events[0].weight, null);
+  HK.logEvent(s, "COFFEE", null, at(2026, 7, 24, 22, 0));
+  assert(!("weight" in s.events[1]), "COFFEEにweightキー自体を作らない");
+});
+test("setEventWeight: MEALのみ。nullで解除できる", () => {
+  const s = HK.emptyState();
+  const mid = HK.logEvent(s, "MEAL", null, at(2026, 7, 24, 20, 0), null, 1);
+  const cid = HK.logEvent(s, "COFFEE", null, at(2026, 7, 24, 22, 0));
+  assert(HK.setEventWeight(s, mid, 3));
+  assertEq(s.events.find((e) => e.id === mid).weight, 3);
+  assert(HK.setEventWeight(s, mid, null));
+  assertEq(s.events.find((e) => e.id === mid).weight, null, "解除できる");
+  assert(!HK.setEventWeight(s, cid, 2), "COFFEEは不可");
+  assert(!HK.setEventWeight(s, 9999, 2), "存在しないidは不可");
+});
+test("setCheckin: sleepinessを受け付ける。未知フィールドは拒否のまま", () => {
+  const s = HK.emptyState();
+  assert(HK.setCheckin(s, "2026-07-24", "sleepiness", 2));
+  assertEq(s.checkin["2026-07-24"].sleepiness, 2);
+  assert(!HK.setCheckin(s, "2026-07-24", "steps", 100), "未知フィールドは拒否");
+});
+test("buildDaySummaries: 重さと眠気が日次サマリに出る", () => {
+  const s = HK.emptyState();
+  const t = at(2026, 7, 24, 20, 0);
+  HK.logEvent(s, "MEAL", null, t, null, 3);
+  HK.setCheckin(s, "2026-07-24", "sleepiness", 2);
+  const days = HK.buildDaySummaries(s, at(2026, 7, 24, 23, 0), 1);
+  assertEq(days[0].meals[0], { tier: null, weight: 3, kind: null, place: null });
+  assertEq(days[0].sleepiness, 2);
+});
+
+test("migrate: v10以降の tier=null は「種類未記録」なので埋めない(重さだけの食事が🟡に化けない)", () => {
+  const s = HK.emptyState();
+  HK.logEvent(s, "MEAL", null, at(2026, 7, 24, 20, 0), null, 3);
+  const m = HK.migrate(JSON.parse(JSON.stringify(s)));
+  assertEq(m.events[0].tier, null, "nullのまま");
+  assertEq(m.events[0].weight, 3);
+  // 2回通しても化けない(起動のたびにmigrateが走るため)
+  const m2 = HK.migrate(JSON.parse(JSON.stringify(m)));
+  assertEq(m2.events[0].tier, null);
+});
+test("migrate: v9以前の tier無しMEAL は従来どおり「ふつう」に寄せる(後方互換)", () => {
+  const s = HK.migrate({ version: 9, settings: {}, events: [{ t: 1, type: "MEAL" }] });
+  assertEq(s.events[0].tier, 2);
+});
+
+test("migrate: 配列であるべき設定がnullでも既定に戻る(設定画面が.mapで落ちない)", () => {
+  const s = HK.migrate({ version: 9, events: [],
+    settings: { mealKinds: null, mealChips: null, coffeeChips: null, activityChips: null } });
+  for (const k of ["mealKinds", "mealChips", "coffeeChips", "activityChips"])
+    assert(Array.isArray(s.settings[k]) && s.settings[k].length > 0, k + " が既定の配列に戻る");
+  assertEq(s.settings.mealKinds[0], HK.DEFAULT_MEAL_KINDS[0]);
+  // 既定オブジェクトを共有参照しない(1つ直すと全stateが変わる事故を防ぐ)
+  s.settings.mealKinds[0].label = "X";
+  assertEq(HK.DEFAULT_MEAL_KINDS[0].label, "サラダ・野菜");
 });
 
 // ================= 結果 =================
