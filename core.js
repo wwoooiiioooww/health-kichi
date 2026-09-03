@@ -1,5 +1,11 @@
 /**
- * ヘルスきち core.js v3 — ロジック層(UI非依存・Nodeでテスト可能)
+ * ヘルスきち core.js v4 — ロジック層(UI非依存・Nodeでテスト可能)
+ *
+ * v3からの変更(2026-09 再設計「本当に必要なものだけ」):
+ *   - 機能トグル(HK.FEATURE_DEFS / settings.features)を導入。項目は削除せず「隠す」だけ
+ *   - 食事に weight(1=軽め/2=ふつう/3=がっつり)を追加。眠気との相関を見るための主軸
+ *   - 夜のチェックインに sleepiness(眠気 0-3) を追加
+ *   - 種類を記録しない食事に tier をでっち上げない(null のまま)
  *
  * v2からの変更(2026-07 施主フィードバック):
  *   - 「1日」を朝4時区切りの論理日に統一(深夜2時の食事は前日の夜食)
@@ -81,6 +87,51 @@ HK.DEFAULT_ACTIVITY_CHIPS = ["歩く", "階段", "筋トレ", "ランニング",
 HK.TONES = { colleague: "同僚", cheer: "チア", analyst: "アナリスト" };
 
 HK.MEAL_TIERS = { 1: "good", 2: "normal", 3: "junk" };
+// 食事の「重さ」。眠気との相関を見る主軸(健康度tierより食後の眠気を説明する)。
+HK.MEAL_WEIGHTS = { 1: "light", 2: "normal", 3: "heavy" };
+
+// ---------------- 機能トグル ----------------
+// 「消すのではなく隠す」ための単一の真実(Single Source of Truth)。
+// UI側に表示条件をベタ書きせず、必ず HK.feat(state, "xxx") 経由で参照する。
+// def: 新規インストール時の既定。最小構成(1日6〜7タップ)になるよう選んである。
+// group: "core"=毎日の記録項目 / "extra"=拡張機能
+HK.FEATURE_DEFS = [
+  { f: "sleepQuality",  group: "core",  def: true,  label: "眠りの質",           hint: "朝に1タップ。あさい/ふつう/ぐっすり" },
+  { f: "sleepiness",    group: "core",  def: true,  label: "眠気",               hint: "夜に1タップ。食べ物との相関に使う" },
+  { f: "irritation",    group: "core",  def: true,  label: "イラッと",           hint: "夜に1タップ。睡眠との相関に使う" },
+  { f: "mealWeight",    group: "core",  def: true,  label: "食事の重さ",         hint: "食べたら1タップ。軽め/ふつう/がっつり" },
+  { f: "exercise",      group: "core",  def: true,  label: "今日の運動量",       hint: "夜に1タップ。全然〜たくさん" },
+  { f: "lateCoffee",    group: "core",  def: false, label: "21時以降のコーヒー", hint: "1タップ。睡眠への影響を見たいとき" },
+  { f: "mood",          group: "core",  def: false, label: "きぶん",             hint: "5段階。「イラッと」と情報が重なる" },
+  { f: "focus",         group: "core",  def: false, label: "はかどり",           hint: "4段階。「眠気」と情報が重なる" },
+  { f: "mealKind",      group: "core",  def: false, label: "食事の種類・お店",   hint: "カタログから選ぶ。入力は確実に増える" },
+  { f: "activityChips", group: "core",  def: false, label: "運動チップ",         hint: "歩く/階段/筋トレ など。運動量と重なる" },
+  { f: "memo",          group: "core",  def: false, label: "メモ",               hint: "1日ひとつの自由入力" },
+  { f: "goals",         group: "extra", def: false, label: "週の目標とふりかえり", hint: "週次目標と週末のポップアップ" },
+  { f: "aiReport",      group: "extra", def: false, label: "AIレポート",         hint: "Geminiに文章でまとめてもらう" }
+];
+
+HK.DEFAULT_FEATURES = () => {
+  const o = {};
+  for (const d of HK.FEATURE_DEFS) o[d.f] = d.def;
+  return o;
+};
+
+/** 機能がONか。未設定・未知キーは定義側の既定へフォールバックする(空フォールバック禁止の原則) */
+HK.feat = (state, f) => {
+  const fx = state && state.settings && state.settings.features;
+  if (fx && Object.prototype.hasOwnProperty.call(fx, f)) return !!fx[f];
+  const d = HK.FEATURE_DEFS.find((x) => x.f === f);
+  return d ? d.def : false;
+};
+
+/** 機能のON/OFF。未知キーは false を返して無視する。 */
+HK.setFeature = (state, f, on) => {
+  if (!HK.FEATURE_DEFS.some((d) => d.f === f)) return false;
+  if (!state.settings.features) state.settings.features = HK.DEFAULT_FEATURES();
+  state.settings.features[f] = !!on;
+  return true;
+};
 
 // ---------------- 日付ユーティリティ ----------------
 
@@ -121,17 +172,20 @@ HK.weekStartIso = (ms) => {
 // ---------------- ストレージスキーマ ----------------
 
 HK.emptyState = () => ({
-  version: 9,
-  events: [],          // {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label(=種類), tier(MEALのみ1-3), place(MEALの店・任意)}
+  version: 10,
+  // events: {id, t, type: "MEAL"|"COFFEE"|"ACTIVITY"|"NO_MEAL", label(=種類),
+  //          tier(MEALの健康度1-3。種類未記録ならnull), weight(MEALの重さ1-3), place(店・任意)}
+  events: [],
   nextEventId: 1,
   sleep: {},           // 起床日(実日) -> {bed, wake, durationMin, source, corrected}
-  checkin: {},         // 論理日 -> {mood?:1-5, focus?:1-4, irritation?:0-3}
+  checkin: {},         // 論理日 -> {mood?:1-5, focus?:1-4, irritation?:0-3, sleepiness?:0-3, note?, kirokuNote?}
   exercise: {},        // 論理日 -> 0-3 (全然/すこし/ふつう/たくさん)
   goals: {},           // 週(月曜ISO) -> {sleepMin?, greenDays?, exerciseDays?, junkMax?, lateCoffeeMax?}
   lastGoalPromptWeek: null, // 週末ポップアップを週1回に制限
   conditions: [],      // 体調ログ {id, emoji, label, startIso, resolvedIso|null, note}
   personalContext: { facts: [], healthChecks: [] }, // 育つ本人情報。facts{id,text,source},healthChecks{id,dateIso,summary,values,imageId}
-  reports: [],
+  reports: [],        // v9以前の週次AIレポート(参照のみ・消さない)
+  summaries: [],      // 今月の要約 {periodIso, text, notes[], createdAt}
   settings: {
     apiKey: "",
     model: "",
@@ -139,6 +193,7 @@ HK.emptyState = () => ({
     mealChips: HK.DEFAULT_MEAL_CHIPS.slice(),
     coffeeChips: HK.DEFAULT_COFFEE_CHIPS.slice(),
     activityChips: HK.DEFAULT_ACTIVITY_CHIPS.slice(),
+    features: HK.DEFAULT_FEATURES(), // 表示する項目のON/OFF。項目は消さず隠すだけ
     logMode: "batch",     // batch=まとめて記録 / quick=都度記録
     displayName: "",
     profile: "",          // 空ならHK.DEFAULT_PROFILEを使用
@@ -146,11 +201,17 @@ HK.emptyState = () => ({
     lastExperiment: null
   },
   pendingBed: null,
-  lastActiveAt: null
+  lastActiveAt: null,
+  pendingFeatureNotice: false  // v10で項目を隠された既存ユーザーへ、戻し方を1回だけ案内する
 });
 
 /** 旧バージョン(v1/v2)のstateを現行スキーマへ移行 */
 HK.migrate = (s) => {
+  // settings.features の有無は、下の既定値補完ループで埋まる前に判定する必要がある
+  const hadFeatures = !!(s.settings && s.settings.features);
+  // 移行元のバージョン。tier=null の意味がv10で変わるので、判定に必要。
+  const fromVersion = +(s.version) || 1;
+  if (!s.settings) s.settings = {};   // 手編集されたJSONのimportで落ちないように
   const base = HK.emptyState();
   for (const k of Object.keys(base)) if (!(k in s)) s[k] = base[k];
   for (const k of Object.keys(base.settings)) if (!(k in s.settings)) s.settings[k] = base.settings[k];
@@ -158,7 +219,9 @@ HK.migrate = (s) => {
     if (e.type === "STAIRS") return Object.assign({}, e, { type: "ACTIVITY", label: "階段" });
     if (e.type === "WALK") return Object.assign({}, e, { type: "ACTIVITY", label: "散歩" });
     if (e.type === "HEALTH") return Object.assign({}, e, { type: "MEAL", tier: 1 });      // 健康チップ→良い食事
-    if (e.type === "MEAL" && e.tier == null) return Object.assign({}, e, { tier: 2 });    // 旧食事→ふつう
+    // v10より前は「tier未設定=ふつう」だった。v10以降の null は「種類を記録していない」
+    // という意味を持つ確定値なので、絶対に埋めない(埋めると重さだけの食事が🟡に化ける)。
+    if (e.type === "MEAL" && e.tier == null && fromVersion < 10) return Object.assign({}, e, { tier: 2 });
     return e;
   });
   let id = s.nextEventId || 1;
@@ -196,12 +259,32 @@ HK.migrate = (s) => {
       }
     }
   }
+  // 配列であるべき設定が null/壊れた値で入っている場合は既定へ戻す。
+  // (手編集されたJSONのimportで、設定画面が .map で落ちるのを防ぐ)
+  const ARRAY_SETTINGS = { mealKinds: "DEFAULT_MEAL_KINDS", mealChips: "DEFAULT_MEAL_CHIPS",
+    coffeeChips: "DEFAULT_COFFEE_CHIPS", activityChips: "DEFAULT_ACTIVITY_CHIPS" };
+  for (const [key, defName] of Object.entries(ARRAY_SETTINGS)) {
+    if (!Array.isArray(s.settings[key])) {
+      s.settings[key] = HK[defName].map((v) => (typeof v === "object" ? Object.assign({}, v) : v));
+    }
+  }
   // conditions / personalContext の補完(nested配列の健全性も保証・非破壊)
   if (!Array.isArray(s.conditions)) s.conditions = [];
   if (!s.personalContext || typeof s.personalContext !== "object") s.personalContext = { facts: [], healthChecks: [] };
   if (!Array.isArray(s.personalContext.facts)) s.personalContext.facts = [];
   if (!Array.isArray(s.personalContext.healthChecks)) s.personalContext.healthChecks = [];
-  s.version = 9;
+  // v10: 機能トグル。既存ユーザーには最小構成の新既定を当て、戻し方を1回だけ案内する。
+  if (!hadFeatures) {
+    const hasData = (s.events && s.events.length > 0)
+      || Object.keys(s.sleep || {}).length > 0
+      || Object.keys(s.checkin || {}).length > 0;
+    if (hasData) s.pendingFeatureNotice = true;
+  } else {
+    // 後から増えたフラグだけ既定で補完する。ユーザーが選んだ値は絶対に上書きしない。
+    for (const d of HK.FEATURE_DEFS)
+      if (!(d.f in s.settings.features)) s.settings.features[d.f] = d.def;
+  }
+  s.version = 10;
   return s;
 };
 
@@ -378,7 +461,7 @@ HK.setSleepManual = (state, dateIso, bedMs, wakeMs) => {
 // ---------------- チェックイン・運動量 ----------------
 
 HK.setCheckin = (state, dateIso, field, value) => {
-  if (!["mood", "focus", "irritation", "note", "kirokuNote"].includes(field)) return false;
+  if (!["mood", "focus", "irritation", "sleepiness", "note", "kirokuNote"].includes(field)) return false;
   if (!state.checkin[dateIso]) state.checkin[dateIso] = {};
   state.checkin[dateIso][field] = value;
   return true;
@@ -396,9 +479,14 @@ HK.setExercise = (state, dateIso, level) => { state.exercise[dateIso] = level; r
 
 // ---------------- イベント記録 ----------------
 
-HK.logEvent = (state, type, label, nowMs, tier) => {
+HK.logEvent = (state, type, label, nowMs, tier, weight) => {
   const e = { id: state.nextEventId++, t: nowMs, type, label: label || null };
-  if (type === "MEAL") e.tier = tier || 2;
+  if (type === "MEAL") {
+    // 種類(label)が分かるならそのtierを使う。種類を記録していないなら null のまま。
+    // 「ふつう(2)」を勝手に入れると、記録していない健康度をグラフが語り出す。
+    e.tier = tier != null ? tier : (label ? HK.mealKindMeta(label).tier : null);
+    e.weight = weight != null ? weight : null;
+  }
   state.events.push(e);
   state.events.sort((a, b) => a.t - b.t);
   return e.id;
@@ -441,6 +529,14 @@ HK.setEventTier = (state, id, tier) => {
   const e = state.events.find((x) => x.id === id);
   if (!e || e.type !== "MEAL") return false;
   e.tier = tier;
+  return true;
+};
+
+/** 食事の重さ weight(1=軽め/2=ふつう/3=がっつり)を修正。MEALのみ。null で解除。 */
+HK.setEventWeight = (state, id, weight) => {
+  const e = state.events.find((x) => x.id === id);
+  if (!e || e.type !== "MEAL") return false;
+  e.weight = weight == null ? null : weight;
   return true;
 };
 
@@ -559,8 +655,13 @@ HK.averageBedTimeHHmm = (times) => {
   return p(Math.floor(mod / 60)) + ":" + p(mod % 60);
 };
 
+/**
+ * 「21時以降」のコーヒーを数える。論理日は朝4時区切りなので、0:00-3:59 も同じ夜として数える。
+ * (深夜1時のタップが1杯も数えられていなかった。論理日の定義と揃える)
+ */
 HK.countLateCoffee = (times) =>
-  times.map(HK.parseHHmm).filter((v) => v != null && v >= HK.LATE_COFFEE_HOUR * 60).length;
+  times.map(HK.parseHHmm).filter((v) =>
+    v != null && (v >= HK.LATE_COFFEE_HOUR * 60 || v < HK.DAY_START_HOUR * 60)).length;
 
 const countBy = (labels) => {
   const m = {};
@@ -594,12 +695,17 @@ HK.buildDaySummaries = (state, endMs, nDays) => {
       kirokuNote: ck.kirokuNote ? String(ck.kirokuNote).slice(0, 80) : null,
       coffeeTimesHHmm: of("COFFEE").map((e) => HK.hhmm(e.t)),
       coffeePlaces: of("COFFEE").map((e) => e.label).filter(Boolean),
-      meals: meals.map((e) => ({ tier: e.tier || 2, kind: e.label || null, place: e.place || null })),
+      meals: meals.map((e) => ({
+        tier: e.tier != null ? e.tier : null,
+        weight: e.weight != null ? e.weight : null,
+        kind: e.label || null, place: e.place || null
+      })),
       activityLabels: of("ACTIVITY").map((e) => e.label),
       noMeal: of("NO_MEAL").length > 0,
       mood: ck.mood != null ? ck.mood : null,
       focus: ck.focus != null ? ck.focus : null,
       irritation: ck.irritation != null ? ck.irritation : null,
+      sleepiness: ck.sleepiness != null ? ck.sleepiness : null,
       exercise: state.exercise[iso] != null ? state.exercise[iso] : null,
       steps: null
     });
@@ -709,6 +815,152 @@ HK.buildGeminiPayload = (days, pastWeeks, lastExperiment, context) => {
   };
 };
 
+// ---------------- わかったこと(相関レポート) ----------------
+/*
+ * 設計方針:
+ *  - 計算はすべてここ(ローカル)で行う。AIには計算させない。
+ *    30日分のJSONをLLMに渡して平均を出させると毎回数字が揺れ、検証できなくなる。
+ *  - 相関係数(r)は出さない。n=30程度では誤差が大きく、読んでも行動に繋がらない。
+ *    代わりに層別比較(「Aだった日 vs Bだった日」の結果側の平均)を出す。
+ *  - 見る組み合わせは3本に固定する。総当たりで探すと偶然の一致が必ず混ざる。
+ *  - 足りなければ黙る。推定できないなら null。
+ */
+
+HK.INSIGHT_DAYS = 30;           // 既定の集計期間
+HK.INSIGHT_MIN_GROUP = 5;       // 各群に最低これだけの日数が要る
+HK.INSIGHT_SLEEP_GAP_MIN = 30;  // 睡眠時間の両群平均差がこれ未満なら「ばらつき不足」で黙る
+HK.INSIGHT_WEAK_POINT = 0.3;    // 0-3スケールでこの差未満なら「はっきりした差なし」
+HK.INSIGHT_WEAK_MIN = 15;       // 睡眠(分)でこの差未満なら「はっきりした差なし」
+
+const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+const median = (a) => {
+  const v = a.slice().sort((x, y) => x - y), m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+const round1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
+
+/**
+ * 層別比較の共通形。
+ * pairs: [{input, outcome}] 。input/outcome のどちらかが null の日は最初に捨てる(欠損は埋めない)。
+ * isHigh(input): その日を「高い側」に入れるか
+ */
+const compare = (spec, pairs, isHigh) => {
+  const usable = pairs.filter((p) => p.input != null && p.outcome != null);
+  const pick = (want) => usable.filter((p) => isHigh(p.input) === want);
+  const hiP = pick(true), loP = pick(false);
+  const item = {
+    id: spec.id, title: spec.title, outcomeLabel: spec.outcomeLabel,
+    inputUnit: spec.inputUnit, outcomeUnit: spec.outcomeUnit,
+    outcomeGoodDirection: spec.outcomeGoodDirection,
+    usableDays: usable.length,
+    high: { label: spec.highLabel, n: hiP.length, inputMean: null, outcomeMean: null },
+    low: { label: spec.lowLabel, n: loP.length, inputMean: null, outcomeMean: null },
+    diff: null, shortfall: 0, status: "need_days"
+  };
+  const fill = (g, ps) => {
+    g.inputMean = ps.length ? mean(ps.map((p) => p.input)) : null;
+    g.outcomeMean = ps.length ? mean(ps.map((p) => p.outcome)) : null;
+  };
+  fill(item.high, hiP); fill(item.low, loP);
+
+  const smaller = Math.min(hiP.length, loP.length);
+  if (smaller < HK.INSIGHT_MIN_GROUP) {
+    item.shortfall = HK.INSIGHT_MIN_GROUP - smaller;
+    item.scarceSide = hiP.length <= loP.length ? "high" : "low";
+    return item;
+  }
+  // 入力側のばらつきが小さすぎると、比べても意味のある差にならない
+  if (spec.minInputGap != null
+    && Math.abs(item.high.inputMean - item.low.inputMean) < spec.minInputGap) {
+    item.status = "need_variance";
+    return item;
+  }
+  item.diff = item.high.outcomeMean - item.low.outcomeMean;
+  const weakAt = spec.outcomeUnit === "min" ? HK.INSIGHT_WEAK_MIN : HK.INSIGHT_WEAK_POINT;
+  item.status = Math.abs(item.diff) < weakAt ? "weak" : "ok";
+  return item;
+};
+
+/** 表示・AI受け渡し用に数値を丸める(生値は持たない。読む側で丸め方が割れないように) */
+const roundItem = (it) => {
+  const r = (g) => {
+    g.inputMean = it.inputUnit === "min" ? (g.inputMean == null ? null : Math.round(g.inputMean)) : round1(g.inputMean);
+    g.outcomeMean = it.outcomeUnit === "min" ? (g.outcomeMean == null ? null : Math.round(g.outcomeMean)) : round1(g.outcomeMean);
+  };
+  r(it.high); r(it.low);
+  it.diff = it.outcomeUnit === "min" ? (it.diff == null ? null : Math.round(it.diff)) : round1(it.diff);
+  return it;
+};
+
+const OFF = (id, title, feature) => ({ id, title, status: "off", missingFeature: feature });
+
+/**
+ * 直近 nDays 日の「わかったこと」。固定3本。
+ * 遅延(ラグ)の取り方:
+ *   睡眠→イラッと : sleep[d]は「dの朝に起きた睡眠」、checkin[d]は「dの夜」。同じdで正しく前夜→当日になる
+ *   コーヒー→睡眠 : dの夜に飲んだコーヒー → 起床はd+1なので sleep[d+1] と組む
+ *   食事の重さ→眠気: どちらも同じ論理日d
+ */
+HK.buildInsights = (state, endMs, nDays) => {
+  const n = nDays || HK.INSIGHT_DAYS;
+  const days = HK.buildDaySummaries(state, endMs, n);
+  const items = [];
+
+  // 1) 睡眠時間 → その日のイラッと
+  if (!HK.feat(state, "irritation")) {
+    items.push(OFF("sleep_irritation", "睡眠時間 → イラッと", "irritation"));
+  } else {
+    const pairs = days.map((d) => ({ input: d.sleepDurationMin, outcome: d.irritation }));
+    // 個人の中央値で分ける。固定閾値(6h/7h)だと、毎晩ほぼ同じ人は両群とも空になり永遠に出ない。
+    const vals = pairs.filter((p) => p.input != null && p.outcome != null).map((p) => p.input);
+    const mid = vals.length ? median(vals) : null;
+    items.push(roundItem(compare({
+      id: "sleep_irritation", title: "睡眠時間 → イラッと", outcomeLabel: "イラッと",
+      highLabel: "よく寝た日", lowLabel: "寝不足の日",
+      inputUnit: "min", outcomeUnit: "point", outcomeGoodDirection: "low",
+      minInputGap: HK.INSIGHT_SLEEP_GAP_MIN
+    }, pairs, (v) => mid != null && v > mid)));
+  }
+
+  // 2) 21時以降のコーヒー → その夜の睡眠(翌朝に起きる睡眠なので1日ずらす)
+  if (!HK.feat(state, "lateCoffee")) {
+    items.push(OFF("coffee_sleep", "21時以降のコーヒー → その夜の睡眠", "lateCoffee"));
+  } else {
+    const pairs = [];
+    for (let i = 0; i < days.length - 1; i++) {
+      pairs.push({
+        input: HK.countLateCoffee(days[i].coffeeTimesHHmm) > 0 ? 1 : 0,
+        outcome: days[i + 1].sleepDurationMin
+      });
+    }
+    items.push(roundItem(compare({
+      id: "coffee_sleep", title: "21時以降のコーヒー → その夜の睡眠", outcomeLabel: "睡眠",
+      highLabel: "飲んだ夜", lowLabel: "飲まなかった夜",
+      inputUnit: "flag", outcomeUnit: "min", outcomeGoodDirection: "high"
+    }, pairs, (v) => v === 1)));
+  }
+
+  // 3) 食事の重さ → その日の眠気(その日いちばん重かった食事で分ける)
+  if (!HK.feat(state, "mealWeight") || !HK.feat(state, "sleepiness")) {
+    items.push(OFF("meal_sleepiness", "食事の重さ → 眠気",
+      HK.feat(state, "mealWeight") ? "sleepiness" : "mealWeight"));
+  } else {
+    const pairs = days.map((d) => {
+      const ws = d.meals.map((m) => m.weight).filter((w) => w != null);
+      return { input: ws.length ? Math.max.apply(null, ws) : null, outcome: d.sleepiness };
+    });
+    items.push(roundItem(compare({
+      id: "meal_sleepiness", title: "食事の重さ → 眠気", outcomeLabel: "眠気",
+      highLabel: "がっつり食べた日", lowLabel: "軽め〜ふつうの日",
+      inputUnit: "weight", outcomeUnit: "point", outcomeGoodDirection: "low"
+    }, pairs, (v) => v >= 3)));
+  }
+
+  const recorded = days.filter((d) => d.sleepDurationMin != null || d.meals.length > 0
+    || d.irritation != null || d.sleepiness != null || d.exercise != null).length;
+  return { rangeDays: n, recordedDays: recorded, items };
+};
+
 /** グラフの週別ビュー用: 直近 n 週の週次平均(古い順) */
 HK.buildWeeklySeries = (state, endMs, nWeeks) => {
   const out = [];
@@ -723,6 +975,7 @@ HK.buildWeeklySeries = (state, endMs, nWeeks) => {
       moodAvg: avgOrNull(days.map((d) => d.mood), true),
       focusAvg: avgOrNull(days.map((d) => d.focus), true),
       irritationAvg: avgOrNull(days.map((d) => d.irritation), true),
+      sleepinessAvg: avgOrNull(days.map((d) => d.sleepiness), true),
       exerciseAvg: avgOrNull(days.map((d) => d.exercise), true),
       lateCoffee: HK.countLateCoffee(coffee)
     });
@@ -820,6 +1073,86 @@ HK.parseGeminiResponse = (respJson) => {
     return { report: o };
   } catch (e) {
     return { error: "レポートの解析に失敗しました。手動で再生成できます。", detail: String(e && e.message || e) };
+  }
+};
+
+// ---------------- 今月の要約(AIは計算せず、出た数字を読み上げるだけ) ----------------
+
+/**
+ * AIに渡すのは「ローカルで確定した数値」だけ。生ログは渡さない。
+ * LLMに平均や相関を計算させると毎回数字が揺れて検証できなくなるため、役割を読み上げに限定する。
+ */
+HK.buildSummaryPayload = (insights) => ({
+  range_days: insights.rangeDays,
+  recorded_days: insights.recordedDays,
+  findings: insights.items.map((it) => {
+    if (it.status === "off") return { id: it.id, title: it.title, status: "not_tracked" };
+    return {
+      id: it.id, title: it.title, status: it.status,
+      usable_days: it.usableDays,
+      outcome_unit: it.outcomeUnit,
+      lower_is_better: it.outcomeGoodDirection === "low",
+      groups: [
+        { label: it.high.label, days: it.high.n, input_mean: it.high.inputMean, outcome_mean: it.high.outcomeMean },
+        { label: it.low.label, days: it.low.n, input_mean: it.low.inputMean, outcome_mean: it.low.outcomeMean }
+      ],
+      difference: it.diff,
+      days_still_needed: it.shortfall || 0
+    };
+  })
+});
+
+HK.SUMMARY_SCHEMA = '{"summary":"2〜3文の要約","notes":["補足(最大2つ。なければ空配列)"]}';
+
+HK.buildSummarySystemPrompt = (settings) => {
+  const st = settings || {};
+  const profile = (st.profile && st.profile.trim()) ? st.profile.trim() : HK.DEFAULT_PROFILE;
+  const tone = HK.TONE_LINES[st.tone] || HK.TONE_LINES.colleague;
+  const name = st.displayName && st.displayName.trim() ? "- ユーザーの呼び名: " + st.displayName.trim() + "さん" : "";
+  return [
+    "あなたは、すでに計算済みの健康データの集計結果を、日本語で読みやすく言い換える担当です。",
+    "",
+    "# 絶対に守るルール",
+    "- 計算しない。平均・差・割合を自分で出し直さない。payload の数値をそのまま使う。",
+    "- payload に無い数値を書かない。存在しない項目について語らない。",
+    '- status が "need_days" の項目は「まだ言えない。あと何日で出せる」とだけ書く。差を推測しない。',
+    '- status が "need_variance" の項目は「ばらつきが小さくて比べられない」とだけ書く。',
+    '- status が "weak" の項目は「はっきりした差は出ていない」と正直に書く。無理に意味を持たせない。',
+    '- status が "not_tracked" の項目には触れない。',
+    "- 説教・一般論(「規則正しい生活を」等)は禁止。行動の指示もしない。事実の読み上げに徹する。",
+    "- 記録しなかった日を責めない。欠損は欠損のまま扱う。",
+    "- 1日1〜2食の食事スタイルは本人の合理的な選択。食事回数に言及しない。",
+    tone,
+    "- 全フィールド合計で300字以内。",
+    "",
+    "# ユーザープロファイル(語り口を合わせるための背景。数値の代わりに使わないこと)",
+    profile,
+    name,
+    "",
+    "# 出力形式",
+    "必ず次のJSONスキーマに従い、JSON以外を一切出力しないこと:",
+    HK.SUMMARY_SCHEMA
+  ].filter(Boolean).join("\n");
+};
+
+HK.buildSummaryRequestBody = (payload, settings) => ({
+  systemInstruction: { parts: [{ text: HK.buildSummarySystemPrompt(settings) }] },
+  contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }],
+  generationConfig: { temperature: 0.6, maxOutputTokens: 4096, responseMimeType: "application/json" }
+});
+
+HK.parseSummaryResponse = (respJson) => {
+  try {
+    const cand = respJson.candidates && respJson.candidates[0];
+    if (!cand) throw new Error("no candidates: " + JSON.stringify(respJson).slice(0, 300));
+    const parts = (cand.content && cand.content.parts) || [];
+    const text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("");
+    if (!text) throw new Error("empty text (finishReason=" + (cand.finishReason || "?") + ")");
+    const o = JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+    if (!o.summary || typeof o.summary !== "string") throw new Error("no summary in JSON");
+    return { summary: { text: o.summary, notes: Array.isArray(o.notes) ? o.notes.slice(0, 2) : [] } };
+  } catch (e) {
+    return { error: "要約の解析に失敗しました。もう一度試せます。", detail: String(e && e.message || e) };
   }
 };
 

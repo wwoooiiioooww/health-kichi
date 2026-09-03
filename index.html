@@ -180,6 +180,40 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
 .kN{border-color:#5E5138!important; background:#221E14!important}
 .kJ{border-color:#5E3A3A!important; background:#221616!important}
 .kind.sel{outline:2px solid var(--moon); outline-offset:1px}
+/* 食事の重さ。健康度と違い「良い/悪い」ではないので、色相は変えず軽→重の濃淡だけで示す */
+.wL{border-color:#3C4A55!important; background:#151C21!important}
+.wN{border-color:#4A5A66!important; background:#1B242A!important}
+.wH{border-color:#5C7180!important; background:#212D34!important}
+/* 設定: 表示する項目 */
+/* わかったこと(層別比較) */
+.ins{padding:13px 0; border-bottom:1px solid var(--line-soft)}
+.ins:first-of-type{padding-top:2px}
+.ins:last-child{border-bottom:0; padding-bottom:2px}
+.ins .it{font-size:13.5px; font-weight:600; margin-bottom:9px}
+.ins .bars{display:flex; flex-direction:column; gap:7px}
+.ins .b{display:grid; grid-template-columns:96px 1fr auto; align-items:center; gap:8px}
+.ins .b .bl{font-size:11.5px; color:var(--muted); line-height:1.3}
+.ins .b .bl small{display:block; color:var(--faint)}
+.ins .b .bt{height:9px; border-radius:5px; background:var(--surface2); overflow:hidden}
+.ins .b .bt i{display:block; height:100%; border-radius:5px; background:var(--moon)}
+.ins .b.good .bt i{background:var(--good)}
+.ins .b.bad .bt i{background:var(--bad)}
+.ins .b .bv{font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; min-width:52px; text-align:right}
+.ins .rd{font-size:13px; margin-top:9px; line-height:1.55}
+.ins .rd b{color:var(--text)}
+.ins .wait{font-size:12.5px; color:var(--muted); line-height:1.55}
+.ins .off{font-size:12px; color:var(--faint)}
+.ftrow{display:flex; align-items:flex-start; gap:10px; padding:11px 0; border-bottom:1px solid var(--line-soft)}
+.ftrow:last-child{border-bottom:0}
+.ftrow .ftxt{flex:1; min-width:0}
+.ftrow .ftxt b{display:block; font-size:14px; font-weight:600}
+.ftrow .ftxt span{display:block; font-size:11.5px; color:var(--muted); margin-top:2px; line-height:1.45}
+.ftsw{flex:0 0 50px; height:29px; border-radius:15px; background:var(--surface2);
+  border:1px solid var(--line); position:relative; cursor:pointer; transition:background .15s, border-color .15s}
+.ftsw::after{content:""; position:absolute; top:3px; left:3px; width:21px; height:21px; border-radius:50%;
+  background:var(--muted); transition:transform .15s, background .15s}
+.ftsw[aria-checked="true"]{background:var(--moon); border-color:var(--moon)}
+.ftsw[aria-checked="true"]::after{transform:translateX(21px); background:var(--ink)}
 .chips button.sel:not(.kind){background:var(--moon); color:var(--ink); border-color:var(--moon)}
 .selitem{display:flex; align-items:center; gap:8px; background:var(--surface2); border:1px solid var(--line-soft);
   border-radius:var(--r-ctl); padding:6px 8px; margin:6px 0}
@@ -259,18 +293,26 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
       <input id="noteHome" data-note="" placeholder="ひとことメモ(任意) 例: 終日眠かった / ずっと客先" maxlength="80" style="margin-top:10px">
     </div>
     <div class="card" id="conditionCard"></div>
-    <div class="card">
+    <div class="card" id="kirokuCard">
       <h2>きろく</h2>
-      <div class="subh">🍽 食事</div>
-      <div class="seg" id="logModeSeg" style="margin-bottom:10px"></div>
-      <div id="mealEntry"></div>
-      <div class="placerow hidden" id="placeRow"></div>
-      <div style="margin-top:8px"><button type="button" class="chip-nomeal" data-nomeal="1">🚫 食べてない</button></div>
-      <div class="subh">☕ カフェイン</div>
-      <div class="chips"><button type="button" class="no-meal" data-latecoffee="1" style="color:var(--text)">☕ 21時以降にコーヒーを飲んだ</button></div>
-      <div class="subh">🏃 運動(その場で)</div><div class="chips g3" id="activityChips"></div>
-      <div class="subh">💪 今日の運動量</div>
-      <div class="seg" id="exHome"></div>
+      <div id="secMeal">
+        <div class="subh">🍽 食事</div>
+        <div class="seg" id="logModeSeg" style="margin-bottom:10px"></div>
+        <div id="mealEntry"></div>
+        <div class="placerow hidden" id="placeRow"></div>
+        <div style="margin-top:8px"><button type="button" class="chip-nomeal" data-nomeal="1">🚫 食べてない</button></div>
+      </div>
+      <div id="secCoffee">
+        <div class="subh">☕ カフェイン</div>
+        <div class="chips"><button type="button" class="no-meal" data-latecoffee="1" style="color:var(--text)">☕ 21時以降にコーヒーを飲んだ</button></div>
+      </div>
+      <div id="secActivity">
+        <div class="subh">🏃 運動(その場で)</div><div class="chips g3" id="activityChips"></div>
+      </div>
+      <div id="secExercise">
+        <div class="subh">💪 今日の運動量</div>
+        <div class="seg" id="exHome"></div>
+      </div>
       <input id="noteKiroku" data-note="" data-notefield="kirokuNote"
         placeholder="食事・運動のメモ(任意) 例: 外食続き / 久々に運動" maxlength="80" style="margin-top:12px">
     </div>
@@ -291,6 +333,7 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
 
   <!-- ============ 分析(計画・グラフ・レポート) ============ -->
   <section id="view-analysis" class="hidden">
+    <div class="card" id="insightCard"></div>
     <div class="card" id="planCard"></div>
     <div class="card report" id="reportCard"></div>
     <div class="card" style="padding:12px 18px">
@@ -301,13 +344,20 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
     <div class="card"><h2>☕ 21時以降のコーヒー</h2><div id="chartCoffee"></div>
       <div class="legend">日別: 時刻の散布(赤点線=21時) / 週別: 回数</div></div>
     <div class="card"><h2>こころ</h2><div id="chartMood"></div>
-      <div class="legend"><span style="color:var(--good)">●きぶん</span> <span style="color:var(--moon)">●はかどり</span> <span style="color:var(--bad)">●イラッと</span></div></div>
-    <div class="card"><h2>過去のレポート</h2><div id="reportHistory"></div></div>
+      <div class="legend" id="moodLegend"></div></div>
+    <div class="card" id="reportHistoryCard"><h2>過去のレポート</h2><div id="reportHistory"></div></div>
   </section>
 
   <!-- ============ 設定 ============ -->
   <section id="view-settings" class="hidden">
     <div class="card">
+      <h2>表示する項目</h2>
+      <p class="note" style="margin:0 0 4px">OFFにしても記録は消えません。隠すだけなので、いつでも戻せます。</p>
+      <div id="featCore"></div>
+      <h2 style="margin-top:18px">拡張機能</h2>
+      <div id="featExtra"></div>
+    </div>
+    <div class="card" id="cardApi">
       <h2>Gemini API</h2>
       <div class="field"><label for="inKey">APIキー(この端末にのみ保存されます)</label>
         <input type="password" id="inKey" autocomplete="off" placeholder="AIza..."></div>
@@ -379,7 +429,7 @@ dialog::backdrop{background:rgba(5,9,16,.66); backdrop-filter:blur(3px)}
 <nav>
   <a href="#home" data-v="home"><span class="ic">🌙</span>ホーム</a>
   <a href="#history" data-v="history"><span class="ic">✏️</span>履歴</a>
-  <a href="#analysis" data-v="analysis"><span class="ic">📈</span>分析</a>
+  <a href="#analysis" data-v="analysis"><span class="ic">💡</span>わかったこと</a>
   <a href="#settings" data-v="settings"><span class="ic">⚙️</span>設定</a>
 </nav>
 
@@ -545,9 +595,9 @@ function renderSleep(){
       <div class="sleep-info"><div class="dur">${fmtDur(sl.durationMin)}</div>
         <div class="times">${HK.hhmm(sl.bed)} → ${HK.hhmm(sl.wake)}</div>
         <div class="src">${sl.source==="AUTO"?"自動記録":"手動記録"} / 時計をタップで修正</div></div></div>
-      <div class="ckrow" style="margin-top:12px"><span class="lbl">眠りの質</span>
+      ${HK.feat(state,"sleepQuality") ? `<div class="ckrow" style="margin-top:12px"><span class="lbl">眠りの質</span>
         <div class="seg">${Q_OPTS.map(([v,lab]) =>
-          `<button type="button" class="${sl.quality===v?"sel":""}" data-q="${v}:${t}">${lab}</button>`).join("")}</div></div>`;
+          `<button type="button" class="${sl.quality===v?"sel":""}" data-q="${v}:${t}">${lab}</button>`).join("")}</div></div>` : ""}`;
   } else {
     // 未記録の日は「時間帯を問わず」入力できるようにする(昼〜夕方に空白ができないように)。
     // 推定できるときは1タップで確定できる提案を出す(勝手に確定はしない)。
@@ -626,14 +676,18 @@ $("btnSleepSave").onclick = () => {
 const CK_DEFS = [
   { f:"mood", label:"きぶん", emoji:true, opts:[[1,"😫"],[2,"😕"],[3,"😐"],[4,"🙂"],[5,"😊"]] },
   { f:"focus", label:"はかどり", opts:[[1,"全然"],[2,"すこし"],[3,"ふつう"],[4,"がっつり"]] },
-  { f:"irritation", label:"イラッと", opts:[[3,"ずっと"],[2,"けっこう"],[1,"すこし"],[0,"なし"]] }
+  { f:"irritation", label:"イラッと", opts:[[3,"ずっと"],[2,"けっこう"],[1,"すこし"],[0,"なし"]] },
+  // 眠気の並びは「イラッと」と同じ向き(左=わるい→右=よい)。軸ごとに逆転させない。
+  { f:"sleepiness", label:"眠気", opts:[[3,"ずっと"],[2,"けっこう"],[1,"すこし"],[0,"なし"]] }
 ];
 const Q_OPTS = [[1,"😵 あさい"],[2,"😐 ふつう"],[3,"😴 ぐっすり"]];
 const EX_OPTS = [[0,"全然"],[1,"すこし"],[2,"ふつう"],[3,"たくさん"]];
 
+/** 表示ONのチェックイン項目だけ返す */
+function ckDefsOn(){ return CK_DEFS.filter(d => HK.feat(state, d.f)); }
 function checkinRowsHtml(dateIso){
   const ck = state.checkin[dateIso] || {};
-  return CK_DEFS.map(def => `<div class="ckrow"><span class="lbl">${def.label}</span>
+  return ckDefsOn().map(def => `<div class="ckrow"><span class="lbl">${def.label}</span>
     <div class="seg">${def.opts.map(([v,lab]) =>
       `<button type="button" class="${def.emoji?"emoji":""}${ck[def.f]===v?" sel":""}"
         data-ck="${def.f}:${v}:${dateIso}">${lab}</button>`).join("")}</div></div>`).join("");
@@ -691,6 +745,11 @@ const targetDate = () => logTargetDate || lToday();
 const TIERS = [[3,"🔴 ジャンク","tJ"],[2,"🟡 ふつう","tN"],[1,"🟢 体にいい","tG"]];
 const TIER_MARK = {1:"🟢",2:"🟡",3:"🔴"};
 const TIER_CLS = {1:"kG",2:"kN",3:"kJ"}; // 種類チップの色クラス
+// 食事の「重さ」。眠気との相関を見る主軸。善悪の軸ではないので色は濃淡のみ。
+const WEIGHTS = [[1,"🍃 軽め"],[2,"🍽 ふつう"],[3,"🍚 がっつり"]];
+const WEIGHT_MARK = {1:"🍃",2:"🍽",3:"🍚"};
+const WEIGHT_NAME = {1:"軽め",2:"ふつう",3:"がっつり"};
+const WEIGHT_CLS = {1:"wL",2:"wN",3:"wH"};
 const TYPE_ICON = {MEAL:"🍽", COFFEE:"☕", ACTIVITY:"🏃", NO_MEAL:"—"};
 const LOG_MODES = [["batch","まとめて"],["quick","都度(1タップ)"]];
 
@@ -700,6 +759,17 @@ function renderLogModeSeg(){
     `<button type="button" class="${mode===k?"sel":""}" data-logmode="${k}">${lab}</button>`).join("");
 }
 function renderMealEntry(){
+  const useW = HK.feat(state, "mealWeight"), useK = HK.feat(state, "mealKind");
+  // 重さがONなら、それが食事入力の主導線。1タップで完了する。
+  if(useW){
+    $("mealEntry").innerHTML = `<div class="chips g3">` + WEIGHTS.map(([v,lab]) =>
+      `<button type="button" class="kind ${WEIGHT_CLS[v]}" data-weight="${v}">${lab}</button>`).join("")
+      + `</div><p class="note" style="margin-top:6px">食べたら1タップ。`
+      + (useK ? `記録したあと、種類とお店を任意で足せます。` : `取り消しはトーストから。`) + `</p>`;
+    hidePlaceRow();
+    return;
+  }
+  if(!useK){ $("mealEntry").innerHTML = ""; hidePlaceRow(); return; }
   const mode = state.settings.logMode || "batch";
   if(mode === "quick"){
     // まとめ記録と同じ「食べたもの(色付き)」から始める。1タップで即記録し、健康度は自動。
@@ -714,15 +784,40 @@ function renderMealEntry(){
 function renderChips(){
   renderLogModeSeg();
   renderMealEntry();
-  $("activityChips").innerHTML = state.settings.activityChips.map(c =>
-    `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("");
+  $("activityChips").innerHTML = HK.feat(state, "activityChips")
+    ? state.settings.activityChips.map(c =>
+        `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("")
+    : "";
+  applyFeatureVisibility();
+}
+
+/** 機能トグルをDOMの表示状態に反映する。表示条件はここ1箇所だけに置く。 */
+function showIf(id, on){ const el = $(id); if(el) el.classList.toggle("hidden", !on); }
+function applyFeatureVisibility(){
+  const meal = HK.feat(state, "mealWeight") || HK.feat(state, "mealKind");
+  const memo = HK.feat(state, "memo");
+  showIf("secMeal", meal);
+  showIf("secCoffee", HK.feat(state, "lateCoffee"));
+  showIf("secActivity", HK.feat(state, "activityChips"));
+  showIf("secExercise", HK.feat(state, "exercise"));
+  showIf("noteKiroku", memo);
+  showIf("noteHome", memo);
+  // 「まとめて/都度」の切替は種類カタログを使う流儀のときだけ意味がある
+  showIf("logModeSeg", !HK.feat(state, "mealWeight") && HK.feat(state, "mealKind"));
+  // 中身が全部OFFになったカードは、見出しだけ残さず丸ごと隠す
+  showIf("kirokuCard", meal || HK.feat(state, "lateCoffee")
+    || HK.feat(state, "activityChips") || HK.feat(state, "exercise") || memo);
+  showIf("checkinCard", ckDefsOn().length > 0 || memo);
+  showIf("planCard", HK.feat(state, "goals"));
+  showIf("reportCard", HK.feat(state, "aiReport"));
+  showIf("reportHistoryCard", HK.feat(state, "aiReport") && state.reports.length > 0);
 }
 
 /** チップ記録の共通処理: 対象日が過去なら19:00起点にする */
-function logAt(type, label, tier){
+function logAt(type, label, tier, weight){
   const tgt = targetDate();
   const ms = tgt === lToday() ? Date.now() : HK.msFromLogicalDate(tgt, 19*60);
-  const id = HK.logEvent(state, type, label, ms, tier);
+  const id = HK.logEvent(state, type, label, ms, tier, weight);
   save(); renderTodayLog(); renderDayEditor();
   return id;
 }
@@ -737,6 +832,16 @@ document.addEventListener("click", (e) => {
     toast(`${TIER_MARK[k.tier||2]} ${k.label} を記録`,
       () => { HK.deleteEventById(state, id); save(); renderTodayLog(); renderDayEditor(); hidePlaceRow(); });
     showPlaceRow(id, true); // 種類は確定済みなので店だけ聞く
+    return;
+  }
+  // 重さ1タップで記録。種類がOFFならこれで完了(1日の主導線)。
+  const wb = e.target.closest("button[data-weight]");
+  if(wb){
+    const w = +wb.dataset.weight;
+    const id = logAt("MEAL", null, null, w);
+    toast(`${WEIGHT_MARK[w]} ${WEIGHT_NAME[w]} を記録`,
+      () => { HK.deleteEventById(state, id); save(); renderTodayLog(); renderDayEditor(); hidePlaceRow(); });
+    if(HK.feat(state, "mealKind")) showPlaceRow(id); else hidePlaceRow();
     return;
   }
   const tb = e.target.closest("button[data-tier]");
@@ -815,7 +920,11 @@ function eventLine(e){
     : e.type === "COFFEE" ? (e.label || "コーヒー")
     : (e.label || (e.type === "MEAL" ? "食事" : ""));
   const place = e.place ? ` <small style="color:var(--muted)">· ${esc(e.place)}</small>` : "";
-  const tier = e.type === "MEAL" ? `<span class="tierdot">${TIER_MARK[e.tier||2]}</span>` : "";
+  // 健康度は記録があるときだけ出す。無いときは重さを出し、どちらも無ければ何も出さない。
+  const mark = e.type !== "MEAL" ? ""
+    : e.tier != null ? TIER_MARK[e.tier]
+    : e.weight != null ? WEIGHT_MARK[e.weight] : "";
+  const tier = mark ? `<span class="tierdot">${mark}</span>` : "";
   return `<li data-eid="${e.id}"><time>${HK.hhmm(e.t)}</time><span>${TYPE_ICON[e.type]||""} ${esc(name)}${place}</span>${tier}</li>`;
 }
 function renderTodayLog(){
@@ -827,7 +936,7 @@ function renderTodayLog(){
 }
 
 /* ログの時刻修正/削除 */
-let evTarget = null, evTierSel = null;
+let evTarget = null, evTierSel = null, evWeightSel = null;
 function openEventDialog(id){
   const e = state.events.find(x => x.id === id); if(!e) return;
   initTimePickers();
@@ -839,13 +948,19 @@ function openEventDialog(id){
   $("slotBtns").innerHTML = slots.map(([lab,m]) =>
     `<button type="button" data-slot="${m}">${lab}</button>`).join("");
   $("slotBtns").querySelectorAll("button").forEach(b => b.onclick = () => setPicker("inEvH","inEvM", +b.dataset.slot));
-  // 食事は健康度tierも修正可
+  // 食事は重さ / 健康度を修正できる。表示中の軸だけ出す。
   const isMeal = e.type === "MEAL";
-  $("evTierWrap").classList.toggle("hidden", !isMeal);
-  evTierSel = isMeal ? (e.tier || 2) : null;
-  if(isMeal){
-    $("evTierBtns").innerHTML = TIERS.map(([t,lab,cls]) =>
-      `<button type="button" class="${cls}${evTierSel===t?" sel":""}" data-evtier="${t}">${lab}</button>`).join("");
+  const showW = isMeal && HK.feat(state, "mealWeight");
+  const showT = isMeal && (HK.feat(state, "mealKind") || e.tier != null);
+  $("evTierWrap").classList.toggle("hidden", !(showW || showT));
+  evTierSel = showT ? (e.tier != null ? e.tier : 2) : null;
+  evWeightSel = showW ? (e.weight != null ? e.weight : 2) : null;
+  if(showW || showT){
+    $("evTierBtns").innerHTML =
+      (showW ? WEIGHTS.map(([v,lab]) =>
+        `<button type="button" class="${WEIGHT_CLS[v]}${evWeightSel===v?" sel":""}" data-evweight="${v}">${lab}</button>`).join("") : "")
+      + (showT ? TIERS.map(([t,lab,cls]) =>
+        `<button type="button" class="${cls}${evTierSel===t?" sel":""}" data-evtier="${t}">${lab}</button>`).join("") : "");
   }
   $("dlgEvent").showModal();
 }
@@ -853,8 +968,14 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest("button[data-evtier]");
   if(t){
     evTierSel = +t.dataset.evtier;
-    $("evTierBtns").querySelectorAll("button").forEach(b =>
+    $("evTierBtns").querySelectorAll("button[data-evtier]").forEach(b =>
       b.classList.toggle("sel", +b.dataset.evtier === evTierSel));
+  }
+  const w = e.target.closest("button[data-evweight]");
+  if(w){
+    evWeightSel = +w.dataset.evweight;
+    $("evTierBtns").querySelectorAll("button[data-evweight]").forEach(b =>
+      b.classList.toggle("sel", +b.dataset.evweight === evWeightSel));
   }
 });
 $("btnEvCancel").onclick = () => $("dlgEvent").close();
@@ -869,6 +990,7 @@ $("btnEvSave").onclick = () => {
   const ld = HK.logicalDateIso(evTarget.t);
   HK.updateEventTime(state, evTarget.id, HK.msFromLogicalDate(ld, m));
   if(evTarget.type === "MEAL" && evTierSel != null) HK.setEventTier(state, evTarget.id, evTierSel);
+  if(evTarget.type === "MEAL" && evWeightSel != null) HK.setEventWeight(state, evTarget.id, evWeightSel);
   save();
   renderTodayLog(); renderDayEditor(); $("dlgEvent").close(); toast("修正しました");
 };
@@ -1004,9 +1126,11 @@ function renderFab(){
   const fab = $("fab");
   const h = new Date().getHours();
   const night = (h >= 18 || h < 4) && state.pendingBed == null;
+  // 「＋」はまとめ入力(種類カタログ)への入口。重さ1タップ運用では出す意味がない。
+  const canBatch = !HK.feat(state, "mealWeight") && HK.feat(state, "mealKind");
   fab.textContent = night ? "🌙" : "＋";
   fab.dataset.action = night ? "bed" : "meal";
-  fab.classList.remove("hidden");
+  fab.classList.toggle("hidden", !night && !canBatch);
 }
 $("fab").onclick = () => {
   if($("fab").dataset.action === "bed"){
@@ -1016,9 +1140,66 @@ $("fab").onclick = () => {
   }
 };
 
-/* ================= 週次レポート ================= */
+/* ================= わかったこと(ローカル計算・常時表示) ================= */
+const FEAT_LABEL = (f) => (HK.FEATURE_DEFS.find(d => d.f === f) || {}).label || f;
+const fmtMin = (v) => v == null ? "—" : `${Math.floor(v/60)}h${String(Math.round(v%60)).padStart(2,"0")}m`;
+const fmtVal = (unit, v) => unit === "min" ? fmtMin(v) : (v == null ? "—" : v.toFixed(1));
+const fmtDiff = (unit, v) => unit === "min"
+  ? `${Math.abs(v)}分` : `${Math.abs(v).toFixed(1)}ポイント`;
+
+/** 群の副題: 睡眠なら実測平均、フラグ/重さなら日数だけ */
+function groupSub(it, g){
+  if(it.inputUnit === "min" && g.inputMean != null) return `平均${fmtMin(g.inputMean)}・${g.n}日`;
+  return `${g.n}日`;
+}
+function insightRowHtml(it){
+  if(it.status === "off"){
+    return `<div class="ins"><div class="it">${esc(it.title)}</div>
+      <div class="off">「${esc(FEAT_LABEL(it.missingFeature))}」を記録していないため出せません。設定→表示する項目 でONにできます。</div></div>`;
+  }
+  if(it.status === "need_days"){
+    const side = it.scarceSide === "high" ? it.high.label : it.low.label;
+    return `<div class="ins"><div class="it">${esc(it.title)}</div>
+      <div class="wait">まだ言えません。「${esc(side)}」があと <b>${it.shortfall}日</b> たまると比べられます。</div></div>`;
+  }
+  if(it.status === "need_variance"){
+    return `<div class="ins"><div class="it">${esc(it.title)}</div>
+      <div class="wait">毎晩ほぼ同じ睡眠時間で、ばらつきが小さいため比べられません。</div></div>`;
+  }
+  // ok / weak: 2群の棒を並べ、下に読み下し文を置く
+  const vals = [it.high.outcomeMean, it.low.outcomeMean];
+  const max = Math.max(...vals.map(v => Math.abs(v)), it.outcomeUnit === "min" ? 480 : 1);
+  const better = (g) => it.outcomeGoodDirection === "low"
+    ? (g.outcomeMean === Math.min(...vals) ? "good" : "bad")
+    : (g.outcomeMean === Math.max(...vals) ? "good" : "bad");
+  const bar = (g) => `<div class="b ${it.status === "weak" ? "" : better(g)}">
+      <span class="bl">${esc(g.label)}<small>${groupSub(it, g)}</small></span>
+      <span class="bt"><i style="width:${Math.max(3, Math.round(Math.abs(g.outcomeMean)/max*100))}%"></i></span>
+      <span class="bv">${fmtVal(it.outcomeUnit, g.outcomeMean)}</span></div>`;
+  let read;
+  if(it.status === "weak"){
+    read = `はっきりした差は出ていません。`;
+  } else {
+    const hiBetter = it.outcomeGoodDirection === "low" ? it.diff < 0 : it.diff > 0;
+    read = `<b>${esc(hiBetter ? it.high.label : it.low.label)}</b>のほうが、`
+      + `${esc(it.outcomeLabel)}が ${fmtDiff(it.outcomeUnit, it.diff)} `
+      + `${it.outcomeGoodDirection === "low" ? "少なめ" : "長め"}でした。`;
+  }
+  return `<div class="ins"><div class="it">${esc(it.title)}</div>
+    <div class="bars">${bar(it.high)}${bar(it.low)}</div>
+    <div class="rd">${read}</div></div>`;
+}
+function renderInsights(){
+  const ins = HK.buildInsights(state, Date.now(), HK.INSIGHT_DAYS);
+  const live = ins.items.filter(i => i.status !== "off");
+  const off = ins.items.filter(i => i.status === "off");
+  $("insightCard").innerHTML = `<h2>わかったこと</h2>
+    <p class="note" style="margin:0 0 4px">直近${ins.rangeDays}日のうち、記録があるのは${ins.recordedDays}日。平均どうしの比較です。少ない日数の差は偶然のこともあります。</p>
+    ${live.map(insightRowHtml).join("")}${off.map(insightRowHtml).join("")}`;
+}
+
+/* ================= 今月の要約(AIは計算せず読み上げるだけ) ================= */
 let reportErr = null;
-function latestReport(){ return state.reports.length ? state.reports[state.reports.length-1] : null; }
 function weekRangeLabel(weekStartIso){
   const s = new Date(weekStartIso + "T12:00:00");
   const e = new Date(s.getTime() + 6*86400000);
@@ -1053,58 +1234,62 @@ function reportBodyHtml(o){
   if(o.one_liner) h += `<div class="oneliner">${esc(o.one_liner)}</div>`;
   return h;
 }
-function renderReport(){
+const thisMonthIso = () => HK.logicalDateIso(Date.now()).slice(0,7);
+function latestSummary(){
+  const a = state.summaries || [];
+  return a.length ? a[a.length-1] : null;
+}
+function renderSummary(){
   const el = $("reportCard");
-  const r = latestReport();
-  const thisWeek = HK.weekStartIso(Date.now());
-  let html = `<h2>AI週次レポート</h2>` + statsRowHtml();
-  if(r){
-    html += reportBodyHtml(r.report);
-    html += `<p class="gen-note">${weekRangeLabel(r.weekStart)} / ${new Date(r.createdAt).toLocaleDateString("ja-JP")} 生成</p>`;
+  const sm = latestSummary();
+  let html = `<h2>今月の要約</h2>`;
+  if(sm){
+    html += `<div class="summary">${esc(sm.text)}</div>`;
+    if(sm.notes && sm.notes.length) html += `<ul>${sm.notes.map(n=>`<li>${esc(n)}</li>`).join("")}</ul>`;
+    html += `<p class="gen-note">${esc(sm.periodIso)} / ${new Date(sm.createdAt).toLocaleDateString("ja-JP")} 生成</p>`;
   }
   if(!state.settings.apiKey){
-    html += `<p class="gen-note">設定画面で Gemini APIキーを登録すると、毎週の振り返りと「来週の小さな実験」を提案します。</p>`;
+    html += `<p class="gen-note">設定画面で Gemini APIキーを登録すると、上の「わかったこと」の数字を文章にまとめられます。
+      数字の計算はこの端末で完結していて、AIには計算させません。</p>`;
   } else {
-    const hasThisWeek = r && r.weekStart === thisWeek;
-    html += `<button class="btn ${hasThisWeek?"":"primary"}" id="btnGen" style="margin-top:10px">
-      ${hasThisWeek ? "レポートを再生成" : "今週のレポートを生成"}</button>`;
+    const done = sm && sm.periodIso === thisMonthIso();
+    html += `<button class="btn ${done?"":"primary"}" id="btnGen" style="margin-top:10px">
+      ${done ? "要約をつくり直す" : "今月の要約をつくる"}</button>`;
   }
   if(reportErr){
     html += `<details class="err"><summary>前回のエラー詳細(タップで表示)</summary><pre>${esc(reportErr)}</pre></details>`;
   }
   el.innerHTML = html;
-  const bg = $("btnGen"); if(bg) bg.onclick = generateReport;
+  const bg = $("btnGen"); if(bg) bg.onclick = generateSummary;
 }
-async function generateReport(){
+async function generateSummary(){
   const btn = $("btnGen");
   btn.disabled = true; btn.innerHTML = `<span class="spin">◐</span> 生成中…`;
   reportErr = null;
   try{
-    const days = HK.buildDaySummaries(state, Date.now(), 7);
-    const weeks = HK.buildPastWeeks(state, Date.now(), 4);
-    const context = HK.buildContextPayload(state, Date.now());
-    const payload = HK.buildGeminiPayload(days, weeks, state.settings.lastExperiment, context);
+    // 計算はローカルで確定させ、AIには出た数字だけを渡す(生ログは送らない)
+    const insights = HK.buildInsights(state, Date.now(), HK.INSIGHT_DAYS);
+    const payload = HK.buildSummaryPayload(insights);
     const model = HK.resolveModel(state.settings);
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       { method:"POST",
         headers:{ "Content-Type":"application/json", "x-goog-api-key":state.settings.apiKey },
-        body: JSON.stringify(HK.buildGeminiRequestBody(payload, state.settings)) });
+        body: JSON.stringify(HK.buildSummaryRequestBody(payload, state.settings)) });
     const bodyText = await resp.text();
     if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${bodyText.slice(0,600)}`);
-    const parsed = HK.parseGeminiResponse(JSON.parse(bodyText));
+    const parsed = HK.parseSummaryResponse(JSON.parse(bodyText));
     if(parsed.error) throw new Error(parsed.error + "\n" + (parsed.detail||"") + "\n応答: " + bodyText.slice(0,600));
-    const weekStart = HK.weekStartIso(Date.now());
-    state.reports = state.reports.filter(x => x.weekStart !== weekStart);
-    state.reports.push({ weekStart, report: parsed.report, createdAt: Date.now() });
-    const ex = parsed.report.experiment;
-    state.settings.lastExperiment = ex ? `${ex.title}: ${ex.action}` : null;
-    save(); toast("今週のレポートができました");
+    const periodIso = thisMonthIso();
+    if(!state.summaries) state.summaries = [];
+    state.summaries = state.summaries.filter(x => x.periodIso !== periodIso);
+    state.summaries.push({ periodIso, text: parsed.summary.text, notes: parsed.summary.notes, createdAt: Date.now() });
+    save(); toast("今月の要約ができました");
   }catch(e){
     reportErr = String(e && e.message || e);
-    toast("レポートを生成できませんでした。エラー詳細を確認できます");
+    toast("要約をつくれませんでした。エラー詳細を確認できます");
   }
-  renderReport();
+  renderSummary();
 }
 
 /* ================= 計画: 週次目標 ================= */
@@ -1179,6 +1364,7 @@ function weekendDue(nowMs){
   return isWeekend && state.lastGoalPromptWeek !== HK.weekStartIso(nowMs);
 }
 function maybeShowWeekend(){
+  if(!HK.feat(state, "goals")) return;
   if(document.querySelector("dialog[open]")) return;
   if(!weekendDue(Date.now())) return;
   state.lastGoalPromptWeek = HK.weekStartIso(Date.now()); save();
@@ -1493,23 +1679,23 @@ function renderDayEditor(){
     <div style="display:flex; justify-content:space-between; align-items:center">
       <span style="font-size:14px">${sl ? `${HK.hhmm(sl.bed)} → ${HK.hhmm(sl.wake)} (${Math.floor(sl.durationMin/60)}h${sl.durationMin%60}m)` : "記録なし"}</span>
       <button type="button" class="btn-ghost" id="btnEditSleep">${sl?"修正":"入力"}</button></div>
-    ${sl ? `<div class="ckrow"><span class="lbl">眠りの質</span><div class="seg">${Q_OPTS.map(([v,lab]) =>
+    ${sl && HK.feat(state,"sleepQuality") ? `<div class="ckrow"><span class="lbl">眠りの質</span><div class="seg">${Q_OPTS.map(([v,lab]) =>
       `<button type="button" class="${sl.quality===v?"sel":""}" data-q="${v}:${editDate}">${lab}</button>`).join("")}</div></div>` : ""}
-    <div class="subh">チェックイン</div>${checkinRowsHtml(editDate)}
-    <input data-note="${editDate}" value="${esc((state.checkin[editDate]||{}).note||"")}"
-      placeholder="ひとことメモ(任意)" maxlength="80" style="margin:8px 0 2px">
-    <div class="subh">💪 運動量</div><div class="seg">${exerciseRowHtml(editDate)}</div>
-    <input data-note="${editDate}" data-notefield="kirokuNote"
-      value="${esc((state.checkin[editDate]||{}).kirokuNote||"")}"
-      placeholder="食事・運動のメモ(任意)" maxlength="80" style="margin:10px 0 2px">
+    ${ckDefsOn().length ? `<div class="subh">チェックイン</div>${checkinRowsHtml(editDate)}` : ""}
+    ${HK.feat(state,"memo") ? `<input data-note="${editDate}" value="${esc((state.checkin[editDate]||{}).note||"")}"
+      placeholder="ひとことメモ(任意)" maxlength="80" style="margin:8px 0 2px">` : ""}
+    ${HK.feat(state,"exercise") ? `<div class="subh">💪 運動量</div><div class="seg">${exerciseRowHtml(editDate)}</div>` : ""}
     <div class="subh">この日のログ(タップで修正・削除)</div>
     <ul class="log">${ev.length ? ev.map(eventLine).join("") : `<li class="empty">記録なし</li>`}</ul>
     <div class="subh">記録を追加(19時起点で入ります。時間はあとで調整)</div>
-    <div class="chips g3" style="margin-bottom:8px">${state.settings.mealKinds.map((k,idx) =>
-      `<button type="button" class="kind ${TIER_CLS[k.tier]||"kN"}" data-quickkind="${idx}">${k.emoji||"🍽"} ${esc(k.label)}</button>`).join("")}</div>
-    <div class="chips g3"><button type="button" data-latecoffee="1">☕ 21時〜</button>
-    ${state.settings.activityChips.slice(0,2).map(c =>
-      `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("")}</div>`;
+    ${HK.feat(state,"mealWeight") ? `<div class="chips g3" style="margin-bottom:8px">${WEIGHTS.map(([v,lab]) =>
+      `<button type="button" class="kind ${WEIGHT_CLS[v]}" data-weight="${v}">${lab}</button>`).join("")}</div>` : ""}
+    ${HK.feat(state,"mealKind") ? `<div class="chips g3" style="margin-bottom:8px">${state.settings.mealKinds.map((k,idx) =>
+      `<button type="button" class="kind ${TIER_CLS[k.tier]||"kN"}" data-quickkind="${idx}">${k.emoji||"🍽"} ${esc(k.label)}</button>`).join("")}</div>` : ""}
+    ${(HK.feat(state,"lateCoffee") || HK.feat(state,"activityChips")) ? `<div class="chips g3">
+      ${HK.feat(state,"lateCoffee") ? `<button type="button" data-latecoffee="1">☕ 21時〜</button>` : ""}
+      ${HK.feat(state,"activityChips") ? state.settings.activityChips.slice(0,2).map(c =>
+        `<button type="button" data-g="ACTIVITY" data-label="${c.replace(/"/g,"&quot;")}">${esc(c)}</button>`).join("") : ""}</div>` : ""}`;
   el.querySelectorAll("li[data-eid]").forEach(li => li.onclick = () => openEventDialog(+li.dataset.eid));
   const es = el.querySelector("#btnEditSleep");
   if(es) es.onclick = () => openSleepDialog(editDate, sl || null);
@@ -1535,7 +1721,7 @@ function renderHistory(){
   renderDayStrip(); renderDayEditor();
 }
 function renderAnalysis(){
-  renderPlan(); renderReport(); renderPeriodSeg();
+  renderInsights(); renderPlan(); renderSummary(); renderPeriodSeg();
   const weekly = histPeriod === "12w";
   const n = histPeriod === "14d" ? 14 : histPeriod === "30d" ? 30 : 12;
   const step = histPeriod === "14d" ? 2 : histPeriod === "30d" ? 5 : 2;
@@ -1543,11 +1729,13 @@ function renderAnalysis(){
     ? HK.buildWeeklySeries(state, Date.now(), 12).map(w => ({
         label: w.weekStartIso.slice(5).replace("-","/"),
         sleep: w.sleepAvgMin, mood: w.moodAvg, focus: w.focusAvg,
-        irritation: w.irritationAvg, lateCoffee: w.lateCoffee, coffeeTimes: [] }))
+        irritation: w.irritationAvg, sleepiness: w.sleepinessAvg,
+        lateCoffee: w.lateCoffee, coffeeTimes: [] }))
     : HK.buildDaySummaries(state, Date.now(), n).map(d => ({
         label: d.dateIso.slice(8),
         sleep: d.sleepDurationMin, mood: d.mood, focus: d.focus,
-        irritation: d.irritation, lateCoffee: null, coffeeTimes: d.coffeeTimesHHmm }));
+        irritation: d.irritation, sleepiness: d.sleepiness,
+        lateCoffee: null, coffeeTimes: d.coffeeTimesHHmm }));
   const bw = (CW - 2*CP)/n - (weekly ? 10 : n > 20 ? 3 : 6);
 
   // --- 睡眠 ---
@@ -1596,13 +1784,19 @@ function renderAnalysis(){
   }
   $("chartCoffee").innerHTML = c + "</svg>";
 
-  // --- こころ(気分/はかどり/イラッと を0-1に正規化した3系列) ---
+  // --- こころ(表示ONの軸だけを0-1に正規化して重ねる) ---
+  // 「わるい→よい」の向きは全軸そろえる: 上に行くほど良い状態。
   const MH=130;
-  const series = [
-    { key:"mood", color:"var(--good)", norm:(v)=>(v-1)/4 },
-    { key:"focus", color:"var(--moon)", norm:(v)=>(v-1)/3 },
-    { key:"irritation", color:"var(--bad)", norm:(v)=>v/3 }
+  const ALL_SERIES = [
+    { key:"mood", label:"きぶん", color:"var(--good)", norm:(v)=>(v-1)/4 },
+    { key:"focus", label:"はかどり", color:"var(--moon)", norm:(v)=>(v-1)/3 },
+    { key:"irritation", label:"イラッと", color:"var(--bad)", norm:(v)=>1-v/3 },
+    { key:"sleepiness", label:"眠気", color:"var(--amber)", norm:(v)=>1-v/3 }
   ];
+  const series = ALL_SERIES.filter(sr => HK.feat(state, sr.key));
+  $("moodLegend").innerHTML = series.length
+    ? series.map(sr => `<span style="color:${sr.color}">●${sr.label}</span>`).join(" ") + " <span>(上ほど良い状態)</span>"
+    : `<span>表示する項目がすべてOFFです。</span>`;
   let mc = svgOpen(MH);
   for(const sr of series){
     const pts=[];
@@ -1647,7 +1841,28 @@ function renderKindEditor(){
       <button type="button" class="btn" data-kadd="1" style="flex:1">追加</button></div>
     <p class="note">🟢🟡🔴タップで健康度を切替。追加時は左のマークで色を選択。</p></div>`;
 }
+/** 設定: 表示する項目。定義(HK.FEATURE_DEFS)から生成するので、追加はcore.js側だけで済む。 */
+function renderFeatureToggles(){
+  const row = (d) => `<div class="ftrow">
+    <div class="ftxt"><b>${esc(d.label)}</b><span>${esc(d.hint)}</span></div>
+    <button type="button" class="ftsw" role="switch" aria-checked="${HK.feat(state, d.f)}"
+      aria-label="${esc(d.label)}" data-feat="${d.f}"></button></div>`;
+  const byGroup = (g) => HK.FEATURE_DEFS.filter(d => d.group === g).map(row).join("");
+  $("featCore").innerHTML = byGroup("core");
+  $("featExtra").innerHTML = byGroup("extra");
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-feat]");
+  if(!b) return;
+  const f = b.dataset.feat;
+  HK.setFeature(state, f, !HK.feat(state, f));
+  save();
+  renderFeatureToggles();
+  renderAll();
+});
+
 function renderSettings(){
+  renderFeatureToggles();
   $("inKey").value = state.settings.apiKey || "";
   $("inModel").value = state.settings.model || "";
   $("inName").value = state.settings.displayName || "";
@@ -1713,7 +1928,7 @@ $("btnSaveKey").onclick = async () => {
   state.settings.model = $("inModel").value.trim();
   save();
   const st = $("keyStatus");
-  if(!key){ st.textContent = "キーを削除しました。"; renderReport(); return; }
+  if(!key){ st.textContent = "キーを削除しました。"; renderSummary(); return; }
   st.textContent = "接続を確認しています…";
   try{
     const model = HK.resolveModel(state.settings);
@@ -1724,7 +1939,7 @@ $("btnSaveKey").onclick = async () => {
       : (r.status===400||r.status===401||r.status===403) ? `✕ キーまたはモデル名が無効です(${r.status})。`
       : `✕ 接続できませんでした(${r.status})。時間をおいて再試行してください。`;
   }catch(e){ st.textContent = "✕ ネットワークに接続できませんでした。"; }
-  renderReport();
+  renderSummary();
 };
 $("btnSaveProfile").onclick = () => {
   state.settings.displayName = $("inName").value.trim();
@@ -1803,6 +2018,10 @@ function handleWakeResult(r){
   importFromHash(); // URL経由の睡眠取り込み(あれば)を先に反映
   renderAll();
   handleWakeResult(r);
+  if(state.pendingFeatureNotice){
+    state.pendingFeatureNotice = false; save();
+    toast("記録項目を最小構成にしました。設定→表示する項目 で戻せます");
+  }
   maybeShowWeekend();
   document.addEventListener("click", () => { HK.touch(state, Date.now()); save(); }, true);
   document.addEventListener("visibilitychange", () => {

@@ -158,7 +158,7 @@ test("buildGeminiPayload: meal_tier_countsが種類別に集計", () => {
 // ================= migrate(後方互換・非破壊) =================
 test("migrate: 空でも現行スキーマ(v9)に整う", () => {
   const s = HK.migrate({});
-  assertEq(s.version, 9);
+  assertEq(s.version, 10);
   assert(Array.isArray(s.events));
   assert(s.settings && Array.isArray(s.settings.mealKinds));
   assert(s.goals && typeof s.goals === "object");
@@ -247,7 +247,7 @@ test("buildDaySummaries: meals は kind と place を分離保持", () => {
   const id = HK.logEvent(s, "MEAL", "魚・海鮮", t, 1);
   HK.setEventPlace(s, id, "自炊");
   const days = HK.buildDaySummaries(s, t, 1);
-  assertEq(days[0].meals[0], { tier: 1, kind: "魚・海鮮", place: "自炊" });
+  assertEq(days[0].meals[0], { tier: 1, weight: null, kind: "魚・海鮮", place: "自炊" });
 });
 test("buildGeminiPayload: meal_kind_counts / meal_place_counts", () => {
   const s = HK.emptyState();
@@ -262,7 +262,7 @@ test("migrate: v5 string配列 → object配列(非破壊・カスタム保持)"
   const s = HK.migrate({ version: 5, settings: { mealKinds: ["サラダ・野菜", "自作カレー"] } });
   assertEq(s.settings.mealKinds[0], { label: "サラダ・野菜", emoji: "🥗", tier: 1 });
   assertEq(s.settings.mealKinds[1], { label: "自作カレー", emoji: "🍽", tier: 2 });
-  assertEq(s.version, 9);
+  assertEq(s.version, 10);
 });
 test("migrate: 旧mealKinds既定 → 新カタログへ差し替え(MECE版)", () => {
   const s = HK.migrate({ settings: { mealKinds: HK.LEGACY_MEAL_KINDS_V5.slice() } });
@@ -565,6 +565,309 @@ test("importSleepText: 既存の記録は上書きしない(手で直した値�
   assertEq(r.skipped, 1);
   assertEq(s.sleep["2026-07-23"].durationMin, 8 * 60, "既存はそのまま");
   assertEq(s.sleep["2026-07-22"].source, "IMPORT");
+});
+
+// ================= v10: 機能トグル =================
+test("FEATURE_DEFS: 既定は最小構成(ONは睡眠の質・眠気・イラッと・食事の重さ・運動量の5つだけ)", () => {
+  const on = HK.FEATURE_DEFS.filter((d) => d.def).map((d) => d.f).sort();
+  assertEq(on, ["exercise", "irritation", "mealWeight", "sleepQuality", "sleepiness"]);
+  assert(HK.FEATURE_DEFS.every((d) => d.label && d.hint && ["core", "extra"].includes(d.group)),
+    "全フラグに表示用のlabel/hint/groupがある");
+  const fs = HK.FEATURE_DEFS.map((d) => d.f);
+  assertEq(fs.length, new Set(fs).size, "フラグ名の重複なし");
+});
+test("feat: 未設定・未知キーは定義側の既定へフォールバックする", () => {
+  const s = HK.emptyState();
+  assert(HK.feat(s, "sleepiness"), "既定ON");
+  assert(!HK.feat(s, "mood"), "既定OFF");
+  delete s.settings.features;
+  assert(HK.feat(s, "mealWeight"), "features自体が無くても既定に落ちる");
+  assert(!HK.feat(s, "存在しない機能"), "未知キーはfalse");
+  assert(HK.feat(null, "sleepiness"), "stateがnullでも落ちず、定義側の既定を返す");
+});
+test("setFeature: 既知キーだけ書き換わる。未知キーは無視", () => {
+  const s = HK.emptyState();
+  assert(HK.setFeature(s, "mood", true));
+  assert(HK.feat(s, "mood"));
+  assert(!HK.setFeature(s, "nope", true), "未知キーはfalseを返す");
+  assert(!("nope" in s.settings.features));
+});
+test("migrate v9→v10: 既存ユーザーは最小構成になり、案内フラグが立つ", () => {
+  const old = HK.emptyState();
+  delete old.settings.features;
+  delete old.pendingFeatureNotice;
+  old.version = 9;
+  HK.logEvent(old, "MEAL", "麺類", at(2026, 7, 24, 20, 0), 2);
+  const s = HK.migrate(old);
+  assertEq(s.version, 10);
+  assert(!HK.feat(s, "mood"), "きぶんは隠れる");
+  assert(HK.feat(s, "sleepiness"), "眠気はON");
+  assert(!HK.feat(s, "lateCoffee"), "21時コーヒーも既定OFF");
+  assertEq(s.pendingFeatureNotice, true, "戻し方の案内を1回出す");
+});
+test("migrate v10: データが無い新規は案内を出さない", () => {
+  const s = HK.migrate({ version: 9, settings: {} });
+  assert(!s.pendingFeatureNotice, "空stateに案内は不要");
+});
+test("migrate v10: ユーザーが選んだフラグは上書きせず、増えた分だけ既定で補う", () => {
+  const s = HK.migrate({ version: 10, settings: { features: { mood: true } } });
+  assert(HK.feat(s, "mood"), "ユーザーがONにした値を守る");
+  assert(HK.feat(s, "sleepiness"), "未知のフラグは既定で補完");
+  assertEq(Object.keys(s.settings.features).length, HK.FEATURE_DEFS.length);
+});
+test("migrate: settingsが無いJSONをimportしても落ちない", () => {
+  const s = HK.migrate({ version: 8, events: [] });
+  assertEq(s.version, 10);
+  assert(s.settings.features, "featuresが補完される");
+});
+
+// ================= v10: 食事の重さ / 眠気 =================
+test("logEvent: 種類を記録しない食事のtierはnull(ふつうをでっち上げない)", () => {
+  const s = HK.emptyState();
+  HK.logEvent(s, "MEAL", null, at(2026, 7, 24, 20, 0), null, 3);
+  assertEq(s.events[0].tier, null, "健康度は未記録のままnull");
+  assertEq(s.events[0].weight, 3, "重さだけ入る");
+});
+test("logEvent: 種類が分かるならカタログのtierを引く(明示tierが最優先)", () => {
+  const s = HK.emptyState();
+  HK.logEvent(s, "MEAL", "バーガー・FF", at(2026, 7, 24, 20, 0));
+  assertEq(s.events[0].tier, 3, "カタログから3");
+  HK.logEvent(s, "MEAL", "バーガー・FF", at(2026, 7, 24, 21, 0), 1);
+  assertEq(s.events[1].tier, 1, "明示指定が勝つ");
+});
+test("logEvent: weight未指定はnull。COFFEEにweightは付かない", () => {
+  const s = HK.emptyState();
+  HK.logEvent(s, "MEAL", "寿司", at(2026, 7, 24, 20, 0), 1);
+  assertEq(s.events[0].weight, null);
+  HK.logEvent(s, "COFFEE", null, at(2026, 7, 24, 22, 0));
+  assert(!("weight" in s.events[1]), "COFFEEにweightキー自体を作らない");
+});
+test("setEventWeight: MEALのみ。nullで解除できる", () => {
+  const s = HK.emptyState();
+  const mid = HK.logEvent(s, "MEAL", null, at(2026, 7, 24, 20, 0), null, 1);
+  const cid = HK.logEvent(s, "COFFEE", null, at(2026, 7, 24, 22, 0));
+  assert(HK.setEventWeight(s, mid, 3));
+  assertEq(s.events.find((e) => e.id === mid).weight, 3);
+  assert(HK.setEventWeight(s, mid, null));
+  assertEq(s.events.find((e) => e.id === mid).weight, null, "解除できる");
+  assert(!HK.setEventWeight(s, cid, 2), "COFFEEは不可");
+  assert(!HK.setEventWeight(s, 9999, 2), "存在しないidは不可");
+});
+test("setCheckin: sleepinessを受け付ける。未知フィールドは拒否のまま", () => {
+  const s = HK.emptyState();
+  assert(HK.setCheckin(s, "2026-07-24", "sleepiness", 2));
+  assertEq(s.checkin["2026-07-24"].sleepiness, 2);
+  assert(!HK.setCheckin(s, "2026-07-24", "steps", 100), "未知フィールドは拒否");
+});
+test("buildDaySummaries: 重さと眠気が日次サマリに出る", () => {
+  const s = HK.emptyState();
+  const t = at(2026, 7, 24, 20, 0);
+  HK.logEvent(s, "MEAL", null, t, null, 3);
+  HK.setCheckin(s, "2026-07-24", "sleepiness", 2);
+  const days = HK.buildDaySummaries(s, at(2026, 7, 24, 23, 0), 1);
+  assertEq(days[0].meals[0], { tier: null, weight: 3, kind: null, place: null });
+  assertEq(days[0].sleepiness, 2);
+});
+
+test("migrate: v10以降の tier=null は「種類未記録」なので埋めない(重さだけの食事が🟡に化けない)", () => {
+  const s = HK.emptyState();
+  HK.logEvent(s, "MEAL", null, at(2026, 7, 24, 20, 0), null, 3);
+  const m = HK.migrate(JSON.parse(JSON.stringify(s)));
+  assertEq(m.events[0].tier, null, "nullのまま");
+  assertEq(m.events[0].weight, 3);
+  // 2回通しても化けない(起動のたびにmigrateが走るため)
+  const m2 = HK.migrate(JSON.parse(JSON.stringify(m)));
+  assertEq(m2.events[0].tier, null);
+});
+test("migrate: v9以前の tier無しMEAL は従来どおり「ふつう」に寄せる(後方互換)", () => {
+  const s = HK.migrate({ version: 9, settings: {}, events: [{ t: 1, type: "MEAL" }] });
+  assertEq(s.events[0].tier, 2);
+});
+
+test("migrate: 配列であるべき設定がnullでも既定に戻る(設定画面が.mapで落ちない)", () => {
+  const s = HK.migrate({ version: 9, events: [],
+    settings: { mealKinds: null, mealChips: null, coffeeChips: null, activityChips: null } });
+  for (const k of ["mealKinds", "mealChips", "coffeeChips", "activityChips"])
+    assert(Array.isArray(s.settings[k]) && s.settings[k].length > 0, k + " が既定の配列に戻る");
+  assertEq(s.settings.mealKinds[0], HK.DEFAULT_MEAL_KINDS[0]);
+  // 既定オブジェクトを共有参照しない(1つ直すと全stateが変わる事故を防ぐ)
+  s.settings.mealKinds[0].label = "X";
+  assertEq(HK.DEFAULT_MEAL_KINDS[0].label, "サラダ・野菜");
+});
+
+test("countLateCoffee: 深夜0-3時台も同じ夜として数える(論理日の定義と揃える)", () => {
+  assertEq(HK.countLateCoffee(["21:00", "23:30", "01:00", "03:59"]), 4);
+  assertEq(HK.countLateCoffee(["04:00", "12:00", "20:59"]), 0, "朝4時以降〜21時前は数えない");
+  assertEq(HK.countLateCoffee(["ぬるぽ", null]), 0, "壊れた値は無視");
+});
+
+// ================= わかったこと(相関レポート) =================
+/** 相関テスト用: 論理日dayIsoに 睡眠/イラッと/眠気/食事の重さ/深夜コーヒー を仕込む */
+function seed(s, dayIso, o){
+  if (o.sleepMin != null) {
+    const wake = HK.msFromLogicalDate(dayIso, 7 * 60);
+    HK.setSleepManual(s, dayIso, wake - o.sleepMin * 60000, wake);
+  }
+  if (o.irritation != null) HK.setCheckin(s, dayIso, "irritation", o.irritation);
+  if (o.sleepiness != null) HK.setCheckin(s, dayIso, "sleepiness", o.sleepiness);
+  if (o.weight != null) HK.logEvent(s, "MEAL", null, HK.msFromLogicalDate(dayIso, 20 * 60), null, o.weight);
+  if (o.lateCoffee) HK.logEvent(s, "COFFEE", null, HK.msFromLogicalDate(dayIso, 22 * 60));
+}
+const D = (i) => "2026-08-" + String(i).padStart(2, "0");   // 2026-08-01 .. 08-30
+const END = at(2026, 8, 30, 23, 0);
+const pick = (ins, id) => ins.items.find((x) => x.id === id);
+/** 全機能ONのstate(相関3本を全部評価させる) */
+function insightState(){
+  const s = HK.emptyState();
+  for (const d of HK.FEATURE_DEFS) HK.setFeature(s, d.f, true);
+  return s;
+}
+
+test("buildInsights: 睡眠→イラッと。中央値で分け、両群の実測平均と差を返す", () => {
+  const s = insightState();
+  // 前半10日=寝不足(5h)でイラッと3 / 後半10日=よく寝た(8h)でイラッと1
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 3 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { sleepMin: 480, irritation: 1 });
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.status, "ok");
+  assertEq(it.high.n, 10); assertEq(it.low.n, 10);
+  assertEq(it.high.inputMean, 480); assertEq(it.low.inputMean, 300);
+  assertEq(it.high.outcomeMean, 1); assertEq(it.low.outcomeMean, 3);
+  assertEq(it.diff, -2, "よく寝た日のほうがイラッとが2ポイント少ない");
+  assertEq(it.outcomeGoodDirection, "low");
+  assertEq(it.outcomeLabel, "イラッと", "何が増減したのか言えるだけの情報を持つ");
+});
+test("buildInsights: 片方の群が5日未満なら数字を出さず、あと何日かを返す", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 3 });
+  for (let i = 11; i <= 13; i++) seed(s, D(i), { sleepMin: 480, irritation: 1 });  // 3日だけ
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.status, "need_days");
+  assertEq(it.shortfall, 2, "あと2日");
+  assertEq(it.scarceSide, "high", "足りないのは「よく寝た日」の側");
+  assertEq(it.diff, null, "足りないうちは差を出さない");
+});
+test("buildInsights: 睡眠時間のばらつきが30分未満なら比較しない", () => {
+  const s = insightState();
+  // 毎晩ほぼ同じ(6h00m〜6h10m)。中央値では割れるが、差が小さすぎて意味がない
+  for (let i = 1; i <= 20; i++) seed(s, D(i), { sleepMin: 360 + (i % 2 ? 0 : 10), irritation: i % 3 });
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.status, "need_variance");
+  assertEq(it.diff, null);
+});
+test("buildInsights: 差がごく小さいときは ok ではなく weak(「効いていない」も結果)", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 2 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { sleepMin: 480, irritation: 2 });
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.status, "weak");
+  assertEq(it.diff, 0);
+});
+test("buildInsights: コーヒーは「その夜」の睡眠=翌朝の記録と組む(1日ずらす)", () => {
+  const s = insightState();
+  // 偶数日の夜に飲む → 翌日(奇数日)の睡眠が短い、という構造を仕込む
+  for (let i = 1; i <= 24; i++) {
+    const drank = i % 2 === 0;
+    seed(s, D(i), { lateCoffee: drank, sleepMin: (i % 2 === 1 && i > 1) ? 300 : 480 });
+  }
+  const it = pick(HK.buildInsights(s, END, 30), "coffee_sleep");
+  assertEq(it.status, "ok");
+  assert(it.high.outcomeMean < it.low.outcomeMean, "飲んだ夜のほうが睡眠が短い");
+  assertEq(it.outcomeUnit, "min");
+  assert(it.high.n >= 5 && it.low.n >= 5);
+});
+test("buildInsights: 深夜1時のコーヒーも「飲んだ夜」に数える", () => {
+  const s = insightState();
+  HK.logEvent(s, "COFFEE", null, HK.msFromLogicalDate("2026-08-10", 60)); // 論理日8/10の深夜1時
+  const days = HK.buildDaySummaries(s, END, 30);
+  const d = days.find((x) => x.dateIso === "2026-08-10");
+  assertEq(HK.countLateCoffee(d.coffeeTimesHHmm), 1);
+});
+test("buildInsights: 食事の重さはその日の最大で分ける(がっつり vs 軽め〜ふつう)", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { weight: 3, sleepiness: 3 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { weight: 1, sleepiness: 1 });
+  // 軽めとがっつりが同じ日に混ざったら「がっつり側」に入る
+  seed(s, D(21), { weight: 1, sleepiness: 3 }); seed(s, D(21), { weight: 3 });
+  const it = pick(HK.buildInsights(s, END, 30), "meal_sleepiness");
+  assertEq(it.status, "ok");
+  assertEq(it.high.n, 11, "がっつりが1品でもあれば「がっつり食べた日」");
+  assertEq(it.low.n, 10);
+  assertEq(it.diff, 2);
+});
+test("buildInsights: 記録ゼロでも落ちず、3本すべてが need_days で返る", () => {
+  const ins = HK.buildInsights(insightState(), END, 30);
+  assertEq(ins.items.length, 3);
+  assertEq(ins.recordedDays, 0);
+  assert(ins.items.every((i) => i.status === "need_days"), "数字は一切出さない");
+  assert(ins.items.every((i) => i.diff == null));
+});
+test("buildInsights: 項目がOFFなら計算せず off で返す(既定は21時コーヒーがOFF)", () => {
+  const ins = HK.buildInsights(HK.emptyState(), END, 30);
+  const c = pick(ins, "coffee_sleep");
+  assertEq(c.status, "off");
+  assertEq(c.missingFeature, "lateCoffee");
+  assertEq(pick(ins, "sleep_irritation").status, "need_days", "既定ONの軸は計算される");
+});
+test("buildInsights: 欠損日は捨てる。埋めない", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 3 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { sleepMin: 480, irritation: 1 });
+  for (let i = 21; i <= 28; i++) seed(s, D(i), { sleepMin: 400 });   // イラッと未記録
+  const it = pick(HK.buildInsights(s, END, 30), "sleep_irritation");
+  assertEq(it.usableDays, 20, "両方そろった日だけ使う");
+  assertEq(it.high.n + it.low.n, 20);
+});
+
+// ================= 今月の要約(AIは読み上げるだけ) =================
+test("buildSummaryPayload: 渡すのは確定済みの数値だけ。生ログは含めない", () => {
+  const s = insightState();
+  for (let i = 1; i <= 10; i++) seed(s, D(i), { sleepMin: 300, irritation: 3 });
+  for (let i = 11; i <= 20; i++) seed(s, D(i), { sleepMin: 480, irritation: 1 });
+  const pl = HK.buildSummaryPayload(HK.buildInsights(s, END, 30));
+  const json = JSON.stringify(pl);
+  assert(!/"t":|events|checkin|bed|wake/.test(json), "生ログ・時刻が混ざらない: " + json.slice(0, 200));
+  const f = pl.findings.find((x) => x.id === "sleep_irritation");
+  assertEq(f.status, "ok");
+  assertEq(f.difference, -2);
+  assertEq(f.groups.map((g) => g.days), [10, 10]);
+  assertEq(f.lower_is_better, true);
+});
+test("buildSummaryPayload: OFFの項目は not_tracked として渡す", () => {
+  const pl = HK.buildSummaryPayload(HK.buildInsights(HK.emptyState(), END, 30));
+  assertEq(pl.findings.find((x) => x.id === "coffee_sleep").status, "not_tracked");
+});
+test("buildSummarySystemPrompt: 計算禁止とstatus別の扱いを必ず含む", () => {
+  const p = HK.buildSummarySystemPrompt(null);
+  assert(p.includes("計算しない"), "計算禁止の明示");
+  assert(p.includes("payload に無い数値を書かない"));
+  for (const st of ["need_days", "need_variance", "weak", "not_tracked"])
+    assert(p.includes(st), st + " の扱いが書かれている");
+  assert(p.includes("JSON以外を一切出力しないこと"));
+});
+test("buildSummaryRequestBody: maxOutputTokensは4096(思考トークンで尻切れさせない)", () => {
+  const b = HK.buildSummaryRequestBody({ a: 1 }, { tone: "analyst" });
+  assertEq(b.generationConfig.maxOutputTokens, 4096);
+  assertEq(b.generationConfig.responseMimeType, "application/json");
+  assert(b.systemInstruction.parts[0].text.includes("アナリスト"), "トーン設定が効く");
+});
+test("parseSummaryResponse: 思考パーツとコードフェンスを除去して解釈する", () => {
+  const r = HK.parseSummaryResponse({ candidates: [{ content: { parts: [
+    { text: "考え中...", thought: true },
+    { text: '```json\n{"summary":"よく寝た日はイラッとが2ポイント少なめでした。","notes":["まだ20日ぶんです"]}\n```' }
+  ] } }] });
+  assertEq(r.summary.text, "よく寝た日はイラッとが2ポイント少なめでした。");
+  assertEq(r.summary.notes, ["まだ20日ぶんです"]);
+});
+test("parseSummaryResponse: 壊れた応答は原因を切り分けられる形でエラーを返す", () => {
+  const r = HK.parseSummaryResponse({ candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [] } }] });
+  assert(r.error && r.detail.includes("MAX_TOKENS"), "detailに手がかりが残る: " + JSON.stringify(r));
+  assert(!r.summary);
+});
+
+test("buildInsights: 3本すべてが結果側の名前を持つ(「何が」少ないのか言えるように)", () => {
+  const ins = HK.buildInsights(insightState(), END, 30);
+  assertEq(ins.items.map((i) => i.outcomeLabel), ["イラッと", "睡眠", "眠気"]);
 });
 
 // ================= 結果 =================
